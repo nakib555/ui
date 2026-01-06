@@ -1,0 +1,1 @@
+// This file has been refactored into src/components/App/index.tsx and src/components/App/useAppLogic.ts

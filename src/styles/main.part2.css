@@ -1,0 +1,145 @@
+
+/* PART 2 of 2 of main.css */
+
+:root {
+  --card-bg: var(--bg-layer-1);
+  --card-text: var(--text-primary);
+  --border-color: var(--border-default);
+}
+
+html, body, #root {
+    height: 100%;
+    height: 100dvh;
+    width: 100%;
+    overflow: hidden;
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    
+    /* Premium Font Rendering settings */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+@media screen and (max-width: 768px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
+.content-editable-input {
+  font-size: 0.875rem;
+  caret-color: var(--primary-main);
+}
+
+.content-editable-input[data-placeholder]:empty {
+  display: grid;
+  align-items: center;
+}
+.content-editable-input[data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+  pointer-events: none;
+  grid-area: 1 / 1 / 2 / 2;
+}
+
+/* Chat Background - Subtle Aurora */
+.chat-background {
+  position: relative;
+  background-color: var(--bg-page);
+  isolation: isolate;
+  /* Allow natural scrolling/selection if needed by children overflowing */
+  overflow: visible; 
+  user-select: text;
+}
+
+/* Highlight Jump Animation */
+@keyframes highlight-animation {
+  0% { background-color: transparent; }
+  25% { background-color: var(--primary-subtle); }
+  100% { background-color: transparent; }
+}
+
+.highlight-jump {
+  animation: highlight-animation 2s ease-in-out;
+  border-radius: 1.5rem;
+}
+
+/* Utilities */
+.contain-content { contain: content; }
+.min-w-0 { min-width: 0; }
+
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+}
+
+.glass-input {
+  background: var(--bg-input);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-default);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+/* Mobile Performance Overrides (Battery Saver & GPU Optimization) */
+@media screen and (max-width: 768px) {
+  /* 1. Disable Glassmorphism on Panels (Force Solid for Content) */
+  .glass-panel, 
+  .glass-input {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    /* Use solid backgrounds for panels/inputs to ensure text readability */
+    background-color: var(--bg-layer-1) !important;
+    /* Replace depth/blur with subtle border */
+    border: 1px solid var(--border-default) !important;
+  }
+
+  /* 2. Disable Blur on Overlays (Keep Transparency for Modals) */
+  /* This fixes the "white space" issue on mobile settings/sidebar */
+  .backdrop-blur-md,
+  .backdrop-blur-sm,
+  .backdrop-blur-xl,
+  [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    /* CRITICAL: Do NOT force background color here. */
+  }
+  
+  /* 3. Flatten Shadows */
+  .shadow-2xl, .shadow-xl, .shadow-lg, .shadow-md, .shadow-sm,
+  [class*="shadow-"] {
+    box-shadow: none !important;
+    /* Add border to maintain component separation */
+    border: 1px solid var(--border-subtle) !important;
+  }
+}
+
+/* Shimmer Text Animation */
+@keyframes shimmer {
+  to {
+    background-position: 200% center;
+  }
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    110deg,
+    var(--text-secondary) 0%,
+    var(--text-primary) 40%,
+    var(--primary-main) 50%,
+    var(--text-primary) 60%,
+    var(--text-secondary) 100%
+  );
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 3s linear infinite;
+}

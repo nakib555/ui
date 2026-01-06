@@ -1,0 +1,9 @@
+{
+  "name": "Agentic AI C",
+  "description": "A responsive chat application powered by the Gemini API, featuring an agentic AI persona.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation",
+    "camera"
+  ]
+}

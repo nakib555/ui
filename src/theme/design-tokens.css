@@ -1,0 +1,22 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* 
+  SEMANTIC THEMING SYSTEM - THE CONTROL CENTER
+  
+  NOTE: Colors are now managed dynamically by `src/services/themeControlCenter.ts`.
+  The Control Center loads `light.json` or `dark.json` and injects these variables 
+  directly into the :root scope at runtime.
+  
+  Tailwind is configured to read these variables.
+*/
+
+:root {
+  /* Variables are injected by Theme Control Center */
+}
+
+.dark {
+  /* Variables are injected by Theme Control Center */
+}

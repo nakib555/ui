@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>Gemini - Agentic AI</title>
+    
+    <!-- PWA Configuration -->
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/favicon.svg">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Agentic AI">
+    <meta name="theme-color" content="#6d28d9" />
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+
+    <!-- Application Styles -->
+    <link rel="stylesheet" href="/styles/main.css">
+
+    <!-- Leaflet for maps (Stable Version) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- KaTeX CSS for Math Rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
+
+    <!-- Tailwind CSS CDN Fallback (Only active if local build fails/CDN required) -->
+    <script>
+      // Fallback Tailwind config if CDN is used
+      tailwind = { config: { darkMode: 'class', theme: { extend: { colors: { 'page': 'var(--bg-page)', 'content-primary': 'var(--text-primary)' } } } } };
+    </script>
+
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@18.3.1",
+    "react-dom/client": "https://aistudiocdn.com/react-dom@18.3.1/client",
+    "framer-motion": "https://aistudiocdn.com/framer-motion@11.2.10",
+    "react-syntax-highlighter": "https://aistudiocdn.com/react-syntax-highlighter@15.5.0",
+    "react-syntax-highlighter/dist/esm/styles/prism": "https://aistudiocdn.com/react-syntax-highlighter@15.5.0/dist/esm/styles/prism",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@0.1.3",
+    "remark-gfm": "https://aistudiocdn.com/remark-gfm@4.0.0",
+    "remark-math": "https://aistudiocdn.com/remark-math@6.0.0",
+    "rehype-katex": "https://aistudiocdn.com/rehype-katex@7.0.0",
+    "rehype-raw": "https://aistudiocdn.com/rehype-raw@7.0.0",
+    "html2canvas": "https://aistudiocdn.com/html2canvas@1.4.1",
+    "react-markdown": "https://aistudiocdn.com/react-markdown@9.0.1",
+    "react-virtuoso": "https://aistudiocdn.com/react-virtuoso@4.7.11",
+    "jszip": "https://aistudiocdn.com/jszip@3.10.1",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "vite": "https://aistudiocdn.com/vite@^7.2.7",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.2",
+    "path": "https://aistudiocdn.com/path@^0.12.7",
+    "child_process": "https://aistudiocdn.com/child_process@^1.0.2",
+    "tailwindcss": "https://aistudiocdn.com/tailwindcss@^4.1.17",
+    "buffer": "https://aistudiocdn.com/buffer@^6.0.3",
+    "fs": "https://aistudiocdn.com/fs@^0.0.1-security",
+    "fs/": "https://aistudiocdn.com/fs@^0.0.1-security/",
+    "express": "https://aistudiocdn.com/express@^5.2.1",
+    "url": "https://aistudiocdn.com/url@^0.11.4",
+    "cors": "https://aistudiocdn.com/cors@^2.8.5",
+    "react-syntax-highlighter/": "https://aistudiocdn.com/react-syntax-highlighter@^16.1.0/",
+    "dotenv/": "https://aistudiocdn.com/dotenv@^17.2.3/",
+    "katex/": "https://aistudiocdn.com/katex@^0.16.27/",
+    "esbuild": "https://aistudiocdn.com/esbuild@^0.27.1",
+    "cpx": "https://aistudiocdn.com/cpx@^1.5.0",
+    "playwright": "https://aistudiocdn.com/playwright@^1.57.0",
+    "@langchain/langgraph": "https://aistudiocdn.com/@langchain/langgraph@^1.0.4"
+  }
+}
+</script>
+</head>
+  <body class="bg-page text-content-primary transition-colors duration-300">
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+    <script>
+      // More robust Service Worker registration with Update Handling
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', async () => {
+          if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+             return;
+          }
+
+          try {
+            const swUrl = new URL('/sw.js', window.location.origin).href;
+            
+            let refreshing = false;
+            // Listen for the controllerchange event to reload the page when the new SW takes over
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+              if (!refreshing) {
+                refreshing = true;
+                window.location.reload();
+              }
+            });
+
+            const registration = await navigator.serviceWorker.register(swUrl);
+            console.log('ServiceWorker registration successful');
+
+            // Check for updates periodically
+            setInterval(() => {
+                registration.update();
+            }, 60 * 60 * 1000); // Check every hour
+
+          } catch (e) {
+             console.warn('ServiceWorker initialization error:', e);
+          }
+        });
+      }
+    </script>
+</body>
+</html>

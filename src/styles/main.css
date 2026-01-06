@@ -1,0 +1,19 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* 1. Import Design Tokens (The Control Center) */
+@import '../theme/design-tokens.css';
+
+/* 2. Import Layout & Components */
+@import './main.part1.css';
+@import './main.part2.css';
+
+/* 3. Import Markdown Styles */
+@import './markdown.css';
+
+/* 4. Tailwind Directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

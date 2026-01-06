@@ -1,0 +1,1 @@
+// This file has been refactored into src/components/Chat/WelcomeScreen/index.ts and src/components/Chat/WelcomeScreen/WelcomeScreen.tsx

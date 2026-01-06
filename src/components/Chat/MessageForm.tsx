@@ -1,0 +1,1 @@
+// This file has been refactored into src/components/Chat/MessageForm/index.ts and src/components/Chat/MessageForm/MessageForm.tsx

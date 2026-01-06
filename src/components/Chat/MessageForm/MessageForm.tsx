@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { forwardRef } from 'react';
+import React, { forwardRef, useState, Suspense } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useMessageForm } from './useMessageForm';
 import { UploadMenu } from './UploadMenu';
@@ -14,8 +14,10 @@ import { MessageFormHandle } from './types';
 import { Message } from '../../../types';
 import { TextType } from '../../UI/TextType';
 import { Tooltip } from '../../UI/Tooltip';
-import { FilePreviewSidebar } from './FilePreviewSidebar';
 import { AttachedFilePreview } from './AttachedFilePreview';
+
+// Lazy load the sidebar to avoid loading syntax highlighters immediately
+const FilePreviewSidebar = React.lazy(() => import('./FilePreviewSidebar').then(m => ({ default: m.FilePreviewSidebar })));
 
 type MessageFormProps = {
   onSubmit: (message: string, files?: File[], options?: { isHidden?: boolean; isThinkingModeEnabled?: boolean; }) => void;
@@ -39,6 +41,8 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
     isAgentMode, setIsAgentMode, hasApiKey 
   } = props;
 
+  const [isDragging, setIsDragging] = useState(false);
+
   const logic = useMessageForm(
     (msg, files, options) => onSubmit(msg, files, { ...options, isThinkingModeEnabled: isAgentMode }),
     isLoading,
@@ -51,6 +55,37 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
   const isGeneratingResponse = isLoading;
   const isSendDisabled = !logic.canSubmit || isAppLoading || backendStatus === 'offline';
   const hasFiles = logic.processedFiles.length > 0;
+
+  // --- Drag & Drop Handlers ---
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Prevent flickering when entering children elements
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      logic.processAndSetFiles(Array.from(e.dataTransfer.files));
+    }
+  };
 
   return (
     <div className="w-full mx-auto max-w-4xl relative">
@@ -67,11 +102,13 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
       </AnimatePresence>
 
       {/* Content Preview Sidebar (Desktop) / Modal (Mobile) */}
-      <FilePreviewSidebar 
-        isOpen={!!logic.previewFile}
-        onClose={() => logic.setPreviewFile(null)}
-        file={logic.previewFile}
-      />
+      <Suspense fallback={null}>
+          <FilePreviewSidebar 
+            isOpen={!!logic.previewFile}
+            onClose={() => logic.setPreviewFile(null)}
+            file={logic.previewFile}
+          />
+      </Suspense>
 
       <input
         type="file"
@@ -89,19 +126,51 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
         {...({ webkitdirectory: "", directory: "" } as any)}
       />
 
-      <div className={`
-        relative bg-transparent border transition-all duration-200 rounded-2xl overflow-hidden shadow-sm flex flex-col
-        ${logic.isFocused ? 'border-primary-main shadow-md ring-1 ring-primary-main/20' : 'border-border-default hover:border-border-strong'}
-      `}>
+      <div 
+        className={`
+            relative bg-input border-2 transition-all duration-200 rounded-2xl overflow-hidden shadow-sm flex flex-col
+            ${isDragging 
+                ? 'border-primary-main ring-4 ring-primary-subtle bg-primary-subtle scale-[1.01]' 
+                : logic.isFocused 
+                    ? 'border-primary-main shadow-lg ring-2 ring-primary-subtle' 
+                    : 'border-border-default hover:border-border-strong'
+            }
+        `}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
         
-        {/* File List Area - Moved "Input Bar Top" */}
+        {/* Drop Indicator Overlay */}
+        <AnimatePresence>
+            {isDragging && (
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 z-50 flex items-center justify-center bg-white/90 dark:bg-black/90 backdrop-blur-[2px] pointer-events-none"
+                >
+                    <div className="text-center text-primary-main font-bold text-lg flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 animate-bounce">
+                            <path d="M12 17V3"/>
+                            <path d="m6 11 6 6 6-6"/>
+                            <path d="M19 21H5"/>
+                        </svg>
+                        Drop to attach
+                    </div>
+                </motion.div>
+            )}
+        </AnimatePresence>
+
+        {/* File List Area - High Contrast */}
         <AnimatePresence>
             {hasFiles && (
                 <motion.div
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    className="flex flex-nowrap overflow-x-auto gap-2 px-3 pb-3 pt-4 border-b border-gray-100 dark:border-white/5 bg-gray-50/50 dark:bg-black/20 scrollbar-hide"
+                    className="flex flex-nowrap overflow-x-auto gap-3 px-4 pb-3 pt-4 border-b border-border-subtle bg-input-sub scrollbar-hide"
                     onWheel={(e) => {
                         if (e.deltaY !== 0) {
                             e.currentTarget.scrollLeft += e.deltaY;
@@ -125,11 +194,11 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
         {/* Text Input */}
         <div className="flex flex-col relative flex-1">
             {/* Animated Placeholder Overlay */}
-            {!logic.inputValue && (
-               <div className="absolute inset-0 px-4 py-4 pointer-events-none select-none opacity-50 z-0 overflow-hidden">
+            {!logic.inputValue && !isDragging && (
+               <div className="absolute inset-0 px-4 py-4 pointer-events-none select-none opacity-60 z-0 overflow-hidden">
                   <TextType 
                     text={logic.placeholder} 
-                    className="text-content-tertiary text-base leading-relaxed"
+                    className="text-content-secondary text-base leading-relaxed"
                     loop 
                     cursorCharacter="|"
                     typingSpeed={30}
@@ -163,7 +232,7 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
                         ref={logic.attachButtonRef}
                         onClick={() => logic.setIsUploadMenuOpen(!logic.isUploadMenuOpen)}
                         disabled={isGeneratingResponse}
-                        className="relative p-2 rounded-xl text-content-secondary hover:text-content-primary hover:bg-layer-3 transition-colors disabled:opacity-50"
+                        className="relative p-2 rounded-xl text-content-secondary hover:text-primary-main hover:bg-layer-2 transition-colors disabled:opacity-50"
                         aria-label="Attach files"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
@@ -193,8 +262,8 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
                         className={`
                             p-2 rounded-xl transition-colors disabled:opacity-50
                             ${logic.isRecording 
-                                ? 'bg-red-500/10 text-red-500 animate-pulse' 
-                                : 'text-content-secondary hover:text-content-primary hover:bg-layer-3'
+                                ? 'bg-status-error-bg text-status-error-text animate-pulse border border-status-error-text' 
+                                : 'text-content-secondary hover:text-content-primary hover:bg-layer-2'
                             }
                         `}
                         aria-label="Voice input"
@@ -216,7 +285,7 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
                             p-2 rounded-xl transition-all duration-300 disabled:opacity-50
                             ${logic.isEnhancing 
                                 ? 'text-primary-main bg-primary-subtle' 
-                                : 'text-content-secondary hover:text-primary-main hover:bg-layer-3'
+                                : 'text-content-secondary hover:text-primary-main hover:bg-layer-2'
                             }
                         `}
                         aria-label="Enhance prompt"
@@ -246,29 +315,27 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
                         disabled={!isGeneratingResponse && isSendDisabled}
                         aria-label={isGeneratingResponse ? "Stop generating" : "Send message"}
                         className={`
-                            w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 shadow-sm group
+                            w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 shadow-sm group border
                             ${isGeneratingResponse 
-                                ? 'bg-layer-1 border-2 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800' 
+                                ? 'bg-layer-2 border-border-strong hover:bg-layer-3' 
                                 : isSendDisabled 
-                                    ? 'bg-layer-3 text-content-tertiary cursor-not-allowed shadow-none' 
-                                    : 'bg-primary-main text-text-inverted hover:bg-primary-hover hover:scale-105 hover:shadow-md'
+                                    ? 'bg-layer-2 border-border-default text-content-tertiary cursor-not-allowed shadow-none' 
+                                    : 'bg-primary-main border-primary-hover text-text-inverted hover:bg-primary-hover hover:shadow-md'
                             }
                         `}
                         whileTap={{ scale: 0.95 }}
                     >
                         {isGeneratingResponse ? ( 
-                            <div className="relative w-6 h-6 flex items-center justify-center">
+                            <div className="relative w-5 h-5 flex items-center justify-center">
                                 {/* Loading Spinner - Fades out on hover */}
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-full h-full transition-opacity duration-200 group-hover:opacity-0">
-                                    <circle cx="24" cy="24" r="16" fill="none" stroke="#4f46e5" strokeWidth="4.5" strokeLinecap="round" strokeDasharray="80 100" strokeDashoffset="0">
-                                        <animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="2.5s" repeatCount="indefinite" />
-                                        <animate attributeName="stroke-dashoffset" values="0; -180" dur="2.5s" repeatCount="indefinite" />
-                                        <animate attributeName="stroke" dur="10s" repeatCount="indefinite" values="#f87171; #fb923c; #facc15; #4ade80; #22d3ee; #3b82f6; #818cf8; #e879f9; #f472b6; #f87171" />
+                                    <circle cx="24" cy="24" r="16" fill="none" stroke="currentColor" strokeWidth="4.5" strokeLinecap="round" strokeDasharray="80 100" strokeDashoffset="0" className="text-primary-main">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="1s" repeatCount="indefinite" />
                                     </circle>
                                 </svg>
                                 {/* Stop Icon - Fades in on hover */}
                                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-red-500">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-status-error-text">
                                         <rect x="6" y="6" width="12" height="12" rx="2" />
                                     </svg>
                                 </div>
@@ -290,7 +357,7 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5, duration: 0.5 }}
-            className="text-[11px] font-medium text-content-tertiary/70 select-none"
+            className="text-[11px] font-medium text-content-tertiary select-none"
           >
              Agentic AI can make mistakes.
           </motion.p>

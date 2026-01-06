@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -9,9 +10,9 @@ import { fileToBase64 } from '../../utils/fileUtils';
 import { useChatHistory } from '../useChatHistory';
 import { generateChatTitle, parseApiError, generateFollowUpSuggestions } from '../../services/gemini/index';
 import { fetchFromApi } from '../../utils/api';
-import { toolImplementations as frontendToolImplementations } from '../../tools';
 import { processBackendStream } from '../../services/agenticLoop/stream-processor';
 import { parseAgenticWorkflow } from '../../utils/workflowParsing';
+import { executeFrontendTool } from './tool-executor';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -72,75 +73,9 @@ export const useChat = (
         }
     }, [isLoading, chatHistory, currentChatId]);
 
-    // Helper to send tool response with robust retry logic
-    const sendToolResponse = useCallback(async (callId: string, payload: any) => {
-        let attempts = 0;
-        const maxAttempts = 4; // Increased attempts
-        const baseDelay = 1000;
-
-        while (attempts < maxAttempts) {
-            try {
-                const response = await fetchFromApi('/api/handler?task=tool_response', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ callId, ...payload }),
-                });
-
-                if (response.ok) return;
-
-                // If server says 404, the session is likely gone (server restart). 
-                // Retrying won't help, so we abort to prevent infinite loops.
-                if (response.status === 404) {
-                    console.warn(`[FRONTEND] Backend session lost (404) for tool response ${callId}. Stopping retries.`);
-                    return;
-                }
-                
-                throw new Error(`Backend returned status ${response.status}`);
-            } catch (e) {
-                const err = e as Error;
-                // If global version mismatch handler triggered, stop everything
-                if (err.message === 'Version mismatch') throw err;
-
-                attempts++;
-                
-                if (attempts >= maxAttempts) {
-                    console.error(`[FRONTEND] Giving up on sending tool response for ${callId} after ${maxAttempts} attempts.`);
-                    // We don't throw here to avoid crashing the whole UI, just log the failure
-                    return;
-                }
-                
-                // Exponential backoff with jitter: 1s, 2s, 4s... + random jitter
-                const delay = baseDelay * Math.pow(2, attempts - 1) + (Math.random() * 500);
-                await new Promise(resolve => setTimeout(resolve, delay));
-            }
-        }
+    const handleFrontendToolExecution = useCallback((callId: string, toolName: string, toolArgs: any) => {
+        executeFrontendTool(callId, toolName, toolArgs);
     }, []);
-
-    const handleFrontendToolExecution = useCallback(async (callId: string, toolName: string, toolArgs: any) => {
-        try {
-            let result: any;
-            if (toolName === 'approveExecution') {
-                result = toolArgs; // The edited plan string
-            } else if (toolName === 'denyExecution') {
-                result = false;
-            } else {
-                 const toolImplementation = (frontendToolImplementations as any)[toolName];
-                 if (!toolImplementation) throw new Error(`Frontend tool not found: ${toolName}`);
-                 result = await toolImplementation(toolArgs);
-            }
-            
-            await sendToolResponse(callId, { result });
-
-        } catch (error) {
-            if ((error as Error).message === 'Version mismatch') return;
-
-            const parsedError = parseApiError(error);
-            console.error(`[FRONTEND] Tool '${toolName}' execution failed. Sending error to backend.`, { callId, error: parsedError });
-            
-            await sendToolResponse(callId, { error: parsedError.message });
-        }
-    }, [sendToolResponse]);
-
 
     const cancelGeneration = useCallback(() => {
         // Abort the frontend fetch immediately for responsiveness
@@ -534,67 +469,52 @@ export const useChat = (
         const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
         if (messageIndex === -1) return;
 
-        const originalMessage = currentChat.messages[messageIndex];
+        // 1. Deep clone the messages list to avoid mutation issues
+        const updatedMessages = JSON.parse(JSON.stringify(currentChat.messages)) as Message[];
+        const targetMessage = updatedMessages[messageIndex];
+
+        // 2. Snapshot the "future" (all messages after this one) to preserve the old branch
+        // The future belongs to the current active version BEFORE we switch
+        const futureMessages = updatedMessages.slice(messageIndex + 1);
         
-        // 1. Snapshot the "future" (all messages after this one) to preserve the old branch
-        // Note: the original message itself is part of the old branch, but we store the *subsequent* flow in the payload.
-        const futureMessages = currentChat.messages.slice(messageIndex + 1);
+        const currentVersionIndex = targetMessage.activeVersionIndex ?? 0;
         
-        // 2. Prepare Version Objects if they don't exist
-        // Use implicit v1 if versions array is empty
-        const currentVersionIndex = originalMessage.activeVersionIndex ?? 0;
-        let versions = originalMessage.versions ? [...originalMessage.versions] : [];
-        
-        if (versions.length === 0) {
-            versions.push({
-                text: originalMessage.text,
-                attachments: originalMessage.attachments,
-                createdAt: Date.now(), // Estimate
+        // Initialize versions array if needed
+        if (!targetMessage.versions || targetMessage.versions.length === 0) {
+            targetMessage.versions = [{
+                text: targetMessage.text,
+                attachments: targetMessage.attachments,
+                createdAt: Date.now(),
                 historyPayload: futureMessages
-            });
+            }];
         } else {
-            // Update the current version with the current future before switching
-            // This ensures if we switch back, we get the state as we left it
-            versions[currentVersionIndex] = {
-                ...versions[currentVersionIndex],
-                historyPayload: futureMessages
-            };
+            // Update the current version with the current future before creating a new one
+            targetMessage.versions[currentVersionIndex].historyPayload = futureMessages;
         }
 
         // 3. Create New Version
-        const newVersionIndex = versions.length;
-        versions.push({
+        const newVersionIndex = targetMessage.versions.length;
+        targetMessage.versions.push({
             text: newText,
-            // We copy attachments for now, assuming edit doesn't change attachments (simplification)
-            attachments: originalMessage.attachments, 
+            attachments: targetMessage.attachments, // Carry over attachments
             createdAt: Date.now(),
-            historyPayload: [] // New branch has no future yet
+            historyPayload: [] // New branch starts with empty future
         });
 
-        // 4. Update the Message Object locally
-        const updatedUserMessage: Message = {
-            ...originalMessage,
-            text: newText,
-            versions: versions,
-            activeVersionIndex: newVersionIndex,
-        };
+        // 4. Update Active Pointer & Text
+        targetMessage.activeVersionIndex = newVersionIndex;
+        targetMessage.text = newText;
 
         // 5. Construct new message list: [..., PreviousMsgs, UpdatedUserMsg]
-        // We truncate the future because we are about to generate a NEW future.
-        const truncatedMessages = [...currentChat.messages.slice(0, messageIndex), updatedUserMessage];
+        // We truncate everything after this message because we are starting a new generation
+        const truncatedList = [...updatedMessages.slice(0, messageIndex), targetMessage];
 
-        // 6. Sync to Backend & Update Local State
+        // 6. Sync to Backend & Update Local State ATOMICALLY
         try {
-            await fetchFromApi(`/api/chats/${chatId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages: truncatedMessages })
-            });
+            // Update local and backend in one go with the fully constructed list
+            await chatHistoryHook.updateChatProperty(chatId, { messages: truncatedList });
             
-            chatHistoryHook.updateChatProperty(chatId, { messages: truncatedMessages });
-            
-            // 7. Trigger AI Response generation
-            // We need to add a model placeholder for the new response
+            // 7. Add model placeholder
             const modelPlaceholder: Message = { 
                 id: generateId(), 
                 role: 'model', 
@@ -609,7 +529,7 @@ export const useChat = (
 
             // 8. Start Stream
             await startBackendChat(
-                'chat',
+                'regenerate', // Force regenerate to ensure context is correctly read from the updated history in DB
                 chatId,
                 modelPlaceholder.id,
                 null, // Passing null since user message is already in history (updated above)
@@ -624,7 +544,7 @@ export const useChat = (
     }, [isLoading, chatHistoryHook, startBackendChat, cancelGeneration, onShowToast, settings, isAgentMode]);
 
     const navigateBranch = useCallback(async (messageId: string, direction: 'next' | 'prev') => {
-        if (isLoading) return; // Prevent switching while generating
+        if (isLoading) return;
         const chatId = currentChatIdRef.current;
         if (!chatId) return;
 
@@ -634,50 +554,40 @@ export const useChat = (
         const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
         if (messageIndex === -1) return;
 
-        const message = currentChat.messages[messageIndex];
-        if (!message.versions || message.versions.length < 2) return;
+        // 1. Deep clone for safety
+        const updatedMessages = JSON.parse(JSON.stringify(currentChat.messages)) as Message[];
+        const targetMessage = updatedMessages[messageIndex];
 
-        const currentIndex = message.activeVersionIndex ?? 0;
+        if (!targetMessage.versions || targetMessage.versions.length < 2) return;
+
+        const currentIndex = targetMessage.activeVersionIndex ?? 0;
         let newIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1;
         
-        // Clamp index
         if (newIndex < 0) newIndex = 0;
-        if (newIndex >= message.versions.length) newIndex = message.versions.length - 1;
+        if (newIndex >= targetMessage.versions.length) newIndex = targetMessage.versions.length - 1;
         
         if (newIndex === currentIndex) return;
 
         // --- SWITCH LOGIC ---
         // 1. Save current future to the *current* version
-        const currentFuture = currentChat.messages.slice(messageIndex + 1);
-        const versions = [...message.versions];
-        versions[currentIndex] = { ...versions[currentIndex], historyPayload: currentFuture };
+        const currentFuture = updatedMessages.slice(messageIndex + 1);
+        targetMessage.versions[currentIndex].historyPayload = currentFuture;
 
         // 2. Restore future from the *target* version
-        const targetVersion = versions[newIndex];
+        const targetVersion = targetMessage.versions[newIndex];
         const restoredFuture = targetVersion.historyPayload || [];
 
-        // 3. Update Message
-        const updatedMessage: Message = {
-            ...message,
-            text: targetVersion.text,
-            attachments: targetVersion.attachments,
-            activeVersionIndex: newIndex,
-            versions: versions
-        };
+        // 3. Update Message Content to match target version
+        targetMessage.text = targetVersion.text;
+        targetMessage.attachments = targetVersion.attachments;
+        targetMessage.activeVersionIndex = newIndex;
 
         // 4. Reconstruct Timeline
-        const newMessages = [...currentChat.messages.slice(0, messageIndex), updatedMessage, ...restoredFuture];
+        const newMessagesList = [...updatedMessages.slice(0, messageIndex), targetMessage, ...restoredFuture];
 
         // 5. Sync & Update
         try {
-            // Optimistic update
-            chatHistoryHook.updateChatProperty(chatId, { messages: newMessages });
-
-            await fetchFromApi(`/api/chats/${chatId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages: newMessages })
-            });
+            await chatHistoryHook.updateChatProperty(chatId, { messages: newMessagesList });
         } catch (e) {
             console.error("Failed to switch branch:", e);
             if (onShowToast) onShowToast("Failed to switch branch", 'error');
@@ -702,25 +612,34 @@ export const useChat = (
             return;
         }
         
-        const originalMessage = currentChat.messages[messageIndex];
-        const currentIndex = originalMessage.activeResponseIndex;
+        // 1. Deep clone messages to prevent mutation issues during async state updates
+        const updatedMessages = JSON.parse(JSON.stringify(currentChat.messages)) as Message[];
+        const targetMessage = updatedMessages[messageIndex];
+        const currentResponseIndex = targetMessage.activeResponseIndex;
 
-        // 1. Snapshot Future: Save what came AFTER this message into the current response's payload
-        const futureMessages = currentChat.messages.slice(messageIndex + 1);
-        chatHistoryHook.updateActiveResponseOnMessage(currentChatId, aiMessageId, (res) => ({ ...res, historyPayload: futureMessages }));
-
-        // 2. Truncate Future in UI immediately (start fresh branch)
-        // We must remove future messages because we are generating a new path from this point.
-        const truncatedMessages = currentChat.messages.slice(0, messageIndex + 1);
-        chatHistoryHook.updateChatProperty(currentChatId, { messages: truncatedMessages });
+        // 2. Snapshot Future: Save what came AFTER this message into the current response's payload
+        const futureMessages = updatedMessages.slice(messageIndex + 1);
+        if (targetMessage.responses && targetMessage.responses[currentResponseIndex]) {
+            targetMessage.responses[currentResponseIndex].historyPayload = futureMessages;
+        }
 
         // 3. Add new response entry
         const newResponse: ModelResponse = { text: '', toolCallEvents: [], startTime: Date.now() };
-        chatHistoryHook.addModelResponse(currentChatId, aiMessageId, newResponse);
-        chatHistoryHook.setChatLoadingState(currentChatId, true);
-        chatHistoryHook.updateMessage(currentChatId, aiMessageId, { isThinking: true });
+        if (!targetMessage.responses) targetMessage.responses = [];
+        targetMessage.responses.push(newResponse);
+        targetMessage.activeResponseIndex = targetMessage.responses.length - 1;
+        targetMessage.isThinking = true;
 
-        // Use 'regenerate' task
+        // 4. Truncate Future in the list (start fresh branch from this AI message)
+        const truncatedList = [...updatedMessages.slice(0, messageIndex), targetMessage];
+
+        // 5. Atomic Update to Backend
+        await chatHistoryHook.updateChatProperty(currentChatId, { messages: truncatedList });
+        
+        // 6. Set Loading State locally
+        chatHistoryHook.setChatLoadingState(currentChatId, true);
+
+        // 7. Use 'regenerate' task
         await startBackendChat(
             'regenerate',
             currentChatId, 
@@ -743,48 +662,34 @@ export const useChat = (
         const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
         if (messageIndex === -1) return;
 
-        const message = currentChat.messages[messageIndex];
-        if (!message.responses || message.responses.length < 2) return;
+        // 1. Deep clone
+        const updatedMessages = JSON.parse(JSON.stringify(currentChat.messages)) as Message[];
+        const targetMessage = updatedMessages[messageIndex];
 
-        const currentIndex = message.activeResponseIndex;
-        if (index < 0 || index >= message.responses.length) return;
+        if (!targetMessage.responses || targetMessage.responses.length < 2) return;
+
+        const currentIndex = targetMessage.activeResponseIndex;
+        if (index < 0 || index >= targetMessage.responses.length) return;
         if (index === currentIndex) return;
 
         // --- RESPONSE SWITCH LOGIC ---
-        // 1. Save current future to the *current* response
-        const currentFuture = currentChat.messages.slice(messageIndex + 1);
-        const currentResponse = message.responses[currentIndex];
-        
-        // Use map to create new array for immutability
-        const updatedResponses = message.responses.map((resp, idx) => {
-            if (idx === currentIndex) return { ...resp, historyPayload: currentFuture };
-            return resp;
-        });
+        // 2. Save current future to the *current* response
+        const currentFuture = updatedMessages.slice(messageIndex + 1);
+        targetMessage.responses[currentIndex].historyPayload = currentFuture;
 
-        // 2. Restore future from the *target* response
-        const targetResponse = updatedResponses[index];
+        // 3. Restore future from the *target* response
+        const targetResponse = targetMessage.responses[index];
         const restoredFuture = targetResponse.historyPayload || [];
 
-        // 3. Update Message
-        const updatedMessage: Message = {
-            ...message,
-            activeResponseIndex: index,
-            responses: updatedResponses
-        };
+        // 4. Update Active Index
+        targetMessage.activeResponseIndex = index;
 
-        // 4. Reconstruct Timeline
-        const newMessages = [...currentChat.messages.slice(0, messageIndex), updatedMessage, ...restoredFuture];
+        // 5. Reconstruct Timeline
+        const newMessagesList = [...updatedMessages.slice(0, messageIndex), targetMessage, ...restoredFuture];
 
-        // 5. Sync & Update
+        // 6. Sync & Update
         try {
-            // Optimistic update
-            chatHistoryHook.updateChatProperty(chatId, { messages: newMessages });
-
-            await fetchFromApi(`/api/chats/${chatId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages: newMessages })
-            });
+            await chatHistoryHook.updateChatProperty(chatId, { messages: newMessagesList });
         } catch (e) {
             console.error("Failed to switch response branch:", e);
             if (onShowToast) onShowToast("Failed to switch response branch", 'error');

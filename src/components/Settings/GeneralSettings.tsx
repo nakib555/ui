@@ -30,6 +30,17 @@ const PROVIDER_OPTIONS = [
     { id: 'openrouter', label: 'OpenRouter', desc: 'Access to Claude, GPT, etc.' }
 ];
 
+const SYNTAX_OPTIONS = [
+    { id: 'auto', label: 'Auto (Match Theme)', desc: 'Switches automatically' },
+    { id: 'vsc-dark', label: 'VS Code', desc: 'Classic VSCode look' },
+    { id: 'vs', label: 'Visual Studio', desc: 'Classic light theme' },
+    { id: 'dracula', label: 'Dracula', desc: 'High contrast purple' },
+    { id: 'atom-dark', label: 'Atom Dark', desc: 'Soft dark colors' },
+    { id: 'synthwave', label: 'Synthwave 84', desc: 'Neon & Retro' },
+    { id: 'one-light', label: 'One Light', desc: 'Clean light theme' },
+    { id: 'github', label: 'GitHub Light', desc: 'Standard GitHub style' },
+];
+
 const ActionButton = ({ 
     icon, 
     title, 
@@ -129,13 +140,10 @@ const ApiKeyInput = ({
 
     return (
         <SettingItem 
-            label="" // Empty label prop as we render custom header
+            label={labelComponent} 
             description={description} 
             layout="col"
         >
-            {/* Custom Header Injection to replace standard label */}
-            <div className="-mt-10 mb-4">{labelComponent}</div>
-
             <form onSubmit={handleSave} className="space-y-4">
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -294,7 +302,7 @@ const ServerUrlInput = ({
                         {status === 'verifying' ? (
                             <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                         ) : status === 'success' ? (
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" /></svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" /></svg>
                         ) : (
                             'Verify'
                         )}
@@ -317,6 +325,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps & { provider: 'gemini' | 'o
     serverUrl, onSaveServerUrl,
     provider, openRouterApiKey, onProviderChange
 }) => {
+  const [syntaxTheme, setSyntaxTheme] = useState(() => localStorage.getItem('syntax_theme') || 'auto');
 
   const handleMainApiKeySave = async (key: string, savedProvider: 'gemini' | 'openrouter') => {
       const cleanKey = key.trim();
@@ -339,6 +348,13 @@ const GeneralSettings: React.FC<GeneralSettingsProps & { provider: 'gemini' | 'o
       if (onSaveSuggestionApiKey) {
           onSaveSuggestionApiKey(cleanKey);
       }
+  };
+
+  const handleSyntaxThemeChange = (newTheme: string) => {
+      setSyntaxTheme(newTheme);
+      localStorage.setItem('syntax_theme', newTheme);
+      // Dispatch event for useSyntaxTheme hook
+      window.dispatchEvent(new Event('syntax-theme-change'));
   };
 
   return (
@@ -389,6 +405,17 @@ const GeneralSettings: React.FC<GeneralSettingsProps & { provider: 'gemini' | 'o
 
       <SettingItem label="Theme" description="Choose your preferred visual style." layout="col">
         <ThemeToggle theme={theme} setTheme={setTheme} variant="cards" />
+      </SettingItem>
+
+      <SettingItem label="Code Syntax Highlighting" description="Customize how code blocks are rendered.">
+          <div className="w-full sm:w-64">
+              <SelectDropdown 
+                  value={syntaxTheme}
+                  onChange={handleSyntaxThemeChange}
+                  options={SYNTAX_OPTIONS}
+                  icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>}
+              />
+          </div>
       </SettingItem>
 
       {/* Manual Server URL Override */}

@@ -106,7 +106,7 @@ export const UserMessage = ({
                <div className="flex justify-end gap-2 mt-1">
                    <button 
                         onClick={handleEditCancel}
-                        className="px-3 py-1.5 text-xs font-semibold text-content-secondary hover:text-content-primary hover:bg-layer-3 rounded-lg transition-colors"
+                        className="px-3 py-1.5 text-xs font-semibold text-content-secondary hover:text-content-primary hover:bg-layer-3 rounded-lg transition-colors border border-border-default"
                    >
                        Cancel
                    </button>
@@ -128,7 +128,7 @@ export const UserMessage = ({
         <div className="w-fit max-w-[85%] sm:max-w-[80%] flex flex-col items-end min-w-0">
             <motion.div 
                 {...animationProps} 
-                className="bg-message-user text-content-primary rounded-2xl rounded-tr-md shadow-sm border border-border-subtle origin-bottom-right overflow-hidden relative z-0 max-w-full"
+                className="bg-message-user text-content-primary rounded-2xl rounded-tr-md shadow-sm border border-border-default origin-bottom-right overflow-hidden relative z-0 max-w-full"
             >
                 {/* Content Section */}
                 <div className="px-5 py-3.5 flex flex-col gap-3 min-w-0">
@@ -140,14 +140,14 @@ export const UserMessage = ({
                                 
                                 if (isImage) {
                                     return (
-                                        <div key={index} className="relative rounded-lg overflow-hidden border border-border-subtle group">
+                                        <div key={index} className="relative rounded-lg overflow-hidden border border-border-strong group">
                                             <img 
                                                 src={src} 
                                                 alt={attachment.name} 
                                                 className="max-h-64 max-w-full object-contain bg-layer-2" 
                                                 loading="lazy"
                                             />
-                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
+                                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
                                                 <p className="text-xs text-white truncate font-medium">{attachment.name}</p>
                                             </div>
                                         </div>
@@ -155,7 +155,7 @@ export const UserMessage = ({
                                 }
 
                                 return (
-                                    <div key={index} className="flex items-center gap-3 p-2 bg-layer-1 rounded-lg border border-border-subtle min-w-[200px]">
+                                    <div key={index} className="flex items-center gap-3 p-2 bg-layer-1 rounded-lg border border-border-default min-w-[200px]">
                                         <FileIcon filename={attachment.name} className="flex-shrink-0 w-8 h-8 text-primary-main" />
                                         <div className="flex-1 min-w-0">
                                             <p className="truncate text-sm font-medium text-content-primary" title={attachment.name}>{attachment.name}</p>
@@ -233,7 +233,7 @@ export const UserMessage = ({
                         count={versionCount} 
                         activeIndex={currentVersionIdx} 
                         onChange={(idx) => onBranchSwitch(idx > currentVersionIdx ? 'next' : 'prev')}
-                        className="ml-1" 
+                        className="ml-1 border border-border-default" 
                     />
                 )}
             </div>

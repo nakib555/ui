@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -8,13 +9,24 @@ import type { Model } from '../../types';
 import type { MemoryFile } from '../../hooks/useMemory';
 import type { Theme } from '../../hooks/useTheme';
 
-// Lazy load ALL modals to optimize bundle size and startup time
-// This ensures the main chat loads instantly, while settings/tools load in background
-const SettingsModal = React.lazy(() => import('../Settings/SettingsModal').then(module => ({ default: module.SettingsModal })));
-const MemoryModal = React.lazy(() => import('../Settings/MemoryModal').then(module => ({ default: module.MemoryModal })));
-const MemoryConfirmationModal = React.lazy(() => import('../Settings/MemoryConfirmationModal').then(module => ({ default: module.MemoryConfirmationModal })));
-const ImportChatModal = React.lazy(() => import('../Settings/ImportChatModal').then(module => ({ default: module.ImportChatModal })));
-const ConfirmationModal = React.lazy(() => import('../UI/ConfirmationModal').then(module => ({ default: module.ConfirmationModal })));
+// Helper for safe lazy loading of named exports
+function lazyLoad<T extends React.ComponentType<any>>(
+  importFactory: () => Promise<{ [key: string]: any }>,
+  name: string
+): React.LazyExoticComponent<T> {
+  return React.lazy(() =>
+    importFactory().then((module) => {
+      if (!module[name]) throw new Error(`Module does not export '${name}'`);
+      return { default: module[name] };
+    })
+  );
+}
+
+const SettingsModal = lazyLoad(() => import('../Settings/SettingsModal'), 'SettingsModal');
+const MemoryModal = lazyLoad(() => import('../Settings/MemoryModal'), 'MemoryModal');
+const MemoryConfirmationModal = lazyLoad(() => import('../Settings/MemoryConfirmationModal'), 'MemoryConfirmationModal');
+const ImportChatModal = lazyLoad(() => import('../Settings/ImportChatModal'), 'ImportChatModal');
+const ConfirmationModal = lazyLoad(() => import('../UI/ConfirmationModal'), 'ConfirmationModal');
 
 type AppModalsProps = {
   isDesktop: boolean;

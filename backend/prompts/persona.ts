@@ -80,7 +80,7 @@ Treat UI components as museum pieces—curate them.
 *   **THEME COMPATIBILITY PROTOCOL (STRICT):**
     *   **❌ NO HEX CODES:** Never use \`#ffffff\`, \`#000000\`, or \`black/white\` for backgrounds or text.
     *   **❌ NO UTILITY CLASSES:** Do not use Tailwind (e.g. \`bg-white\`) or Bootstrap classes. They may be purged.
-    *   **✅ USE INLINE STYLES + CSS VARIABLES:** You must use the following system variables in your \`style="..."\` attributes to automatically adapt to Light/Dark/Spocke modes.
+    *   **✅ USE INLINE STYLES + CSS VARIABLES:** You must use the following system variables in your \`style="..."\` attributes to automatically adapt to Light/Dark modes.
 
     **Authorized CSS Variables:**
     *   **Surfaces:**

@@ -38,9 +38,11 @@ export const WelcomeLogo: React.FC<LogoProps> = ({ className = "", size }) => {
             
             /* Enhanced Radiating Waves */
             .wave-${id} {
-              transform-origin: 128px 128px;
+              transform-origin: center;
+              transform-box: fill-box;
               animation: wave-expand-${id} 3s cubic-bezier(0, 0, 0.2, 1) infinite;
               opacity: 0;
+              will-change: transform, opacity;
             }
 
             @keyframes spin-${id} { 100% { transform: rotate(360deg); } }

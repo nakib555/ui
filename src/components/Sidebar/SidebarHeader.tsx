@@ -21,7 +21,7 @@ export const SidebarHeader = ({ isCollapsed, isDesktop, setIsOpen, setIsCollapse
   const shouldCollapse = isDesktop && isCollapsed;
   
   return (
-    <div className={`flex items-center mb-6 mt-4 flex-shrink-0 ${shouldCollapse ? 'justify-center' : 'justify-between px-4'}`}>
+    <div className={`flex items-center mb-6 mt-3 flex-shrink-0 ${shouldCollapse ? 'justify-center' : 'justify-between px-4'}`}>
       <div className="flex items-center gap-3 select-none">
           <div className="flex-shrink-0">
              <Logo className="w-10 h-10" />

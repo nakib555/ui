@@ -41,7 +41,7 @@
 
 .markdown-content h1 { 
   font-size: 1.75em; 
-  border-bottom: 1px solid var(--border-subtle); 
+  border-bottom: 1px solid var(--border-default); 
   padding-bottom: 0.3em; 
 }
 
@@ -93,16 +93,12 @@
   margin: 1.5em 0;
   padding: 1em 1.25em;
   background-color: var(--bg-layer-2);
-  border-left: 4px solid var(--border-default);
+  border-left: 4px solid var(--border-focus); /* Use Focus/Accent color */
   border-radius: 0.5rem;
   color: var(--text-secondary);
   font-style: normal;
-}
-
-.dark .custom-blockquote {
-  background-color: rgba(255, 255, 255, 0.03);
-  border-left-color: var(--primary-main); /* Pop of color in dark mode */
-  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  border-left-width: 4px; /* Ensure left border overrides general border */
 }
 
 .custom-blockquote p {
@@ -126,9 +122,10 @@
   max-width: 100%;
   height: auto;
   border-radius: 0.75rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   margin: 1.5em 0;
   display: block;
+  border: 1px solid var(--border-subtle);
 }
 
 /* --- SVG Handling --- */
@@ -149,6 +146,8 @@
   display: block; /* Important for overflow */
   overflow-x: auto; /* Scroll horizontally on overflow */
   white-space: nowrap; /* Prevent ugly wrapping inside cells */
+  border: 1px solid var(--border-default);
+  border-radius: 0.5rem;
 }
 
 .markdown-content thead {
@@ -160,7 +159,7 @@
   text-align: left;
   padding: 0.75em 1em;
   color: var(--text-primary);
-  border-bottom: 2px solid var(--border-default);
+  border-bottom: 1px solid var(--border-strong);
 }
 
 .markdown-content td {
@@ -179,4 +178,6 @@
   overflow-x: auto;
   white-space: pre;
   max-width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 0.5rem;
 }

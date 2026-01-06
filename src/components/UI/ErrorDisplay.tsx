@@ -31,6 +31,8 @@ export const getErrorMessageSuggestion = (code?: string): string | null => {
             return 'A network error occurred. Please check your internet connection. If the problem persists, check the Backend Server URL in Settings.';
         case 'CONTEXT_LENGTH_EXCEEDED':
             return 'The conversation has become too long for the model to process. Try clearing the chat or starting a new topic.';
+        case 'FILE_SYSTEM_ERROR':
+            return 'There was a problem saving your conversation or file to the server. Please ensure the server has write permissions and sufficient disk space.';
         default:
             if (code?.startsWith('TOOL_')) {
                 return 'An error occurred while the AI was using one of its tools. Check the details below for more information.';
@@ -64,7 +66,7 @@ const getErrorVariant = (code?: string): ErrorVariant => {
         return 'connection';
     }
 
-    if (['RATE_LIMIT_EXCEEDED', 'UNAVAILABLE', 'QUOTA_EXCEEDED', 'RESOURCE_EXHAUSTED', 'OVERLOADED', 'CONTEXT_LENGTH_EXCEEDED'].some(c => codeUpper.includes(c))) {
+    if (['RATE_LIMIT_EXCEEDED', 'UNAVAILABLE', 'QUOTA_EXCEEDED', 'RESOURCE_EXHAUSTED', 'OVERLOADED', 'CONTEXT_LENGTH_EXCEEDED', 'FILE_SYSTEM_ERROR'].some(c => codeUpper.includes(c))) {
         return 'warning';
     }
     
@@ -121,6 +123,8 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ error, onRetry }) =>
                 newCode = 'NETWORK_ERROR';
             } else if (lowerMessage.includes('context length') || lowerDetails.includes('context length')) {
                 newCode = 'CONTEXT_LENGTH_EXCEEDED';
+            } else if (lowerMessage.includes('save') || lowerMessage.includes('write failed') || lowerMessage.includes('rename')) {
+                newCode = 'FILE_SYSTEM_ERROR';
             }
         }
         

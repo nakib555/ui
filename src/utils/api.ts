@@ -1,52 +1,61 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export const getApiBaseUrl = () => {
+/**
+ * Determines the base URL for API requests based on the execution environment.
+ */
+export const getApiBaseUrl = (): string => {
     // 1. Manual Override from LocalStorage (Highest Priority)
-    // This allows users to fix connection issues at runtime via Settings
+    // Allows users to explicitly set a backend URL in Settings, overriding everything else.
     try {
         if (typeof window !== 'undefined') {
             const customUrl = localStorage.getItem('custom_server_url');
-            if (customUrl) return customUrl.replace(/\/$/, ''); // Remove trailing slash
+            if (customUrl) return customUrl.replace(/\/$/, '');
+        }
+    } catch (e) {}
+
+    // 2. Build Configuration / Environment Variable (VITE_API_BASE_URL)
+    // This allows deployments (like Cloudflare Pages) to define the backend URL via env vars.
+    // In Vite, this is replaced at build time or available in dev mode.
+    try {
+        // @ts-ignore - Vite specific
+        const envUrl = import.meta.env.VITE_API_BASE_URL;
+        if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+            return envUrl.replace(/\/$/, '');
         }
     } catch (e) {
-        // Ignore localStorage access errors (security settings, etc)
+        // Ignore if import.meta is not available or fails
     }
 
-    // 2. Check for explicit environment variable (Set this in Cloudflare Pages/Vercel)
-    // We access import.meta.env directly to allow Vite's `define` to replace it statically at build time.
-    // @ts-ignore
-    const envUrl = import.meta.env.VITE_API_BASE_URL;
-    if (envUrl) {
-        return envUrl.replace(/\/$/, '');
-    }
+    // 3. Safe environment detection
+    // Some bundlers/runtimes don't support import.meta.env
+    const isDev = typeof process !== 'undefined' && process.env?.NODE_ENV === 'development';
+    
+    // 4. Development/Localhost logic
+    if (typeof window !== 'undefined') {
+        const { hostname, port, protocol } = window.location;
+        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
 
-    // 3. Development fallback
-    if (process.env.NODE_ENV === 'development') {
-        return 'http://localhost:3001';
-    }
-
-    // 4. Localhost Production/Preview Fallback
-    // If running locally...
-    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-        // If we are serving FROM the backend port (3001), use relative paths.
-        if (window.location.port === '3001') {
-            return ''; 
+        if (isLocal) {
+            // If we are served from port 3000 (Vite) but backend is 3001
+            if (port === '3000' || port === '8000' || port === '5173') {
+                return `${protocol}//${hostname}:3001`;
+            }
+            // If served from backend port or a different local port, use relative
+            return '';
         }
-        // Otherwise (e.g. 'serve -s dist' on port 3000, or 'vite preview' on 4173),
-        // default to the standard local backend port 3001.
-        return 'http://localhost:3001';
+        
+        // 5. Preview/Iframe Environments (like AI Studio)
+        // If the hostname looks like a sub-domain of a known platform, 
+        // we might still want to try same-origin relative paths first.
+        return ''; 
     }
 
-    // 5. Deployed Fallback
-    // If we are not on localhost, assume we are deployed.
-    // Default to relative paths (monorepo deployment) unless an env var overrides it.
     return '';
 };
-
-export const API_BASE_URL = getApiBaseUrl();
 
 // Global callback for version mismatch
 let onVersionMismatch = () => {};
@@ -56,59 +65,54 @@ export const setOnVersionMismatch = (callback: () => void) => {
 
 type ApiOptions = RequestInit & { silent?: boolean };
 
+/**
+ * Enhanced fetch wrapper for API calls with automatic base URL and error handling.
+ */
 export const fetchFromApi = async (url: string, options: ApiOptions = {}): Promise<Response> => {
     const baseUrl = getApiBaseUrl();
     const fullUrl = `${baseUrl}${url}`;
     const method = options.method || 'GET';
     const { silent, ...fetchOptions } = options;
     
-    // Cast import.meta to any to avoid TypeScript errors
-    const meta = import.meta as any;
+    // Get version from safe source
+    let appVersion = 'unknown';
+    try {
+        const meta = import.meta as any;
+        appVersion = meta.env?.VITE_APP_VERSION || 'unknown';
+    } catch (e) {}
     
-    const headers = {
+    const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        'X-Client-Version': appVersion,
         ...fetchOptions.headers,
-        'X-Client-Version': (meta.env && meta.env.VITE_APP_VERSION) || 'unknown',
     };
     
     try {
         const response = await fetch(fullUrl, { ...fetchOptions, headers });
         
+        // 409 Conflict is our convention for version mismatch
         if (response.status === 409) {
             console.warn(`[API Warning] ⚠️ Version mismatch detected for ${url}`);
             onVersionMismatch();
             throw new Error('Version mismatch');
         }
 
-        if (!response.ok) {
-             let errorData: any = {};
-             try {
-                 errorData = await response.clone().json();
-             } catch (e) {
-                 errorData = { error: { message: response.statusText } };
-             }
-
-             if (!silent) {
-                 console.error(`[API Error] ❌ ${method} ${url} failed`, {
-                     status: response.status,
-                     statusText: response.statusText,
-                     errorData
-                 });
-             }
-             
-             // We do NOT throw here because existing callers rely on checking response.ok manually.
-             // However, we ensure the body is consumable by cloning above if needed, 
-             // but here we just let the caller handle the response body reading.
+        if (!response.ok && !silent) {
+            // Log as expanded object for better debugging in developer tools
+            console.error(`[API Error] ❌ ${method} ${url} failed with status ${response.status}`);
+            try {
+                const errorData = await response.clone().json();
+                console.dir(errorData);
+            } catch (e) {
+                const errorText = await response.clone().text();
+                console.error('Response body:', errorText);
+            }
         }
         
         return response;
     } catch (error) {
         if (!silent) {
-            console.error(`[API Fatal] 💥 ${method} ${url} failed to execute`, {
-                cause: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
-                how: 'Network error, fetch failed, or server unreachable',
-                endpoint: fullUrl
-            });
+            console.error(`[API Fatal] 💥 ${method} ${url} request failed`, error);
         }
         throw error;
     }

@@ -1,3 +1,4 @@
+
 {
   "name": "agentic-ai-chat",
   "version": "1.0.0",
@@ -24,6 +25,7 @@
     "deploy": "npm run build:client && wrangler pages deploy dist"
   },
   "dependencies": {
+    "@codesandbox/sandpack-react": "^2.19.8",
     "@google/genai": "1.29.1",
     "@vitejs/plugin-react": "^4.2.1",
     "ai": "^3.2.18",

@@ -1,26 +1,43 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import React, { Suspense } from 'react';
-import { useAppLogic } from '../../hooks/useAppLogic';
+import { useAppLogic } from './useAppLogic';
 import { Toast } from '../UI/Toast';
 import { AppSkeleton } from '../UI/AppSkeleton';
 import {
   DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS
 } from './constants';
 import { VersionMismatchOverlay } from '../UI/VersionMismatchOverlay';
+import { ChatArea } from '../Chat/ChatArea';
 
-// Lazy Load Major UI Blocks to optimize initial render and bundle splitting
-const Sidebar = React.lazy(() => import('../Sidebar/Sidebar').then(module => ({ default: module.Sidebar })));
-const ChatHeader = React.lazy(() => import('../Chat/ChatHeader').then(module => ({ default: module.ChatHeader })));
-const ChatArea = React.lazy(() => import('../Chat/ChatArea').then(module => ({ default: module.ChatArea })));
-const SourcesSidebar = React.lazy(() => import('../AI/SourcesSidebar').then(module => ({ default: module.SourcesSidebar })));
-const ArtifactSidebar = React.lazy(() => import('../Sidebar/ArtifactSidebar').then(module => ({ default: module.ArtifactSidebar })));
-const ThinkingSidebar = React.lazy(() => import('../Sidebar/ThinkingSidebar').then(module => ({ default: module.ThinkingSidebar })));
-const AppModals = React.lazy(() => import('./AppModals').then(module => ({ default: module.AppModals })));
-const TestRunner = React.lazy(() => import('../Testing').then(module => ({ default: module.TestRunner })));
+// Helper to safely lazy load named exports
+function lazyLoad<T extends React.ComponentType<any>>(
+  importFactory: () => Promise<{ [key: string]: any }>,
+  name: string
+): React.LazyExoticComponent<T> {
+  return React.lazy(() =>
+    importFactory().then((module) => {
+      const component = module[name];
+      if (!component) {
+        throw new Error(`Module does not export component '${name}'`);
+      }
+      return { default: component };
+    })
+  );
+}
+
+// Lazy Load Major UI Blocks
+const Sidebar = lazyLoad(() => import('../Sidebar/Sidebar'), 'Sidebar');
+const ChatHeader = lazyLoad(() => import('../Chat/ChatHeader'), 'ChatHeader');
+const SourcesSidebar = lazyLoad(() => import('../AI/SourcesSidebar'), 'SourcesSidebar');
+const ArtifactSidebar = lazyLoad(() => import('../Sidebar/ArtifactSidebar'), 'ArtifactSidebar');
+const ThinkingSidebar = lazyLoad(() => import('../Sidebar/ThinkingSidebar'), 'ThinkingSidebar');
+const AppModals = lazyLoad(() => import('./AppModals'), 'AppModals');
+const TestRunner = lazyLoad(() => import('../Testing'), 'TestRunner');
 
 export const App = () => {
   const logic = useAppLogic();
@@ -30,23 +47,21 @@ export const App = () => {
     : null;
   const chatTitle = currentChat ? currentChat.title : null;
   
-  // Find the currently active message for thinking sidebar logic if needed
-  // Use optional chaining for messages array as it might be undefined during initial load
   const activeMessage = currentChat?.messages?.length ? currentChat.messages[currentChat.messages.length - 1] : null;
 
   return (
     <div 
         ref={logic.appContainerRef} 
-        className={`flex h-full bg-transparent overflow-hidden transition-[height] duration-200 ease-out ${logic.isAnyResizing ? 'pointer-events-none' : ''}`}
-        // Apply visual viewport height constraint on mobile to ensure the entire app layout resizes 
-        // correctly when the virtual keyboard opens, preventing the UI from being pushed up or scrolling.
+        className={`flex h-full bg-page text-content-primary overflow-hidden transition-[height] duration-200 ease-out ${logic.isAnyResizing ? 'pointer-events-none' : ''}`}
         style={{ 
-            height: !logic.isDesktop && logic.visualViewportHeight ? `${logic.visualViewportHeight}px` : '100dvh' 
+            height: !logic.isDesktop && logic.visualViewportHeight ? `${logic.visualViewportHeight}px` : '100dvh',
+            // On mobile, we use visualViewportHeight to handle keyboard, so we reset safe-areas slightly differently
+            paddingTop: logic.isDesktop ? '0' : 'env(safe-area-inset-top)', 
+            paddingBottom: logic.isDesktop ? '0' : 'env(safe-area-inset-bottom)',
         }}
     >
       {logic.versionMismatch && <VersionMismatchOverlay />}
       
-      {/* Global Suspense Boundary with Shimmering Skeleton Loader */}
       <Suspense fallback={<AppSkeleton />}>
         <Sidebar
           key={logic.isDesktop ? 'desktop' : 'mobile'}
@@ -71,17 +86,23 @@ export const App = () => {
         />
 
         <main 
-            className="relative z-10 flex-1 flex flex-col chat-background min-w-0 h-full"
+            className="relative z-10 flex-1 flex flex-col min-w-0 h-full bg-page transition-colors duration-300"
         >
-          {/* Mobile Sidebar Toggle - Only visible on mobile when sidebar is closed */}
-          {!logic.isDesktop && !logic.isSidebarOpen && (
-            <button
-              onClick={() => logic.setIsSidebarOpen(true)}
-              className="absolute top-3 left-4 z-50 p-2 rounded-lg bg-white/80 dark:bg-black/50 backdrop-blur-md border border-gray-200 dark:border-white/10 text-slate-600 dark:text-slate-300 shadow-sm"
-              aria-label="Open sidebar"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
-            </button>
+          {/* Mobile Header Toggle */}
+          {!logic.isDesktop && (
+            <div className="absolute top-0 left-0 right-0 z-30 pointer-events-none px-4 py-3">
+               <div className="h-11 flex items-center">
+                 {!logic.isSidebarOpen && (
+                  <button
+                    onClick={() => logic.setIsSidebarOpen(true)}
+                    className="pointer-events-auto p-2 rounded-lg bg-layer-1/80 backdrop-blur-md border border-border text-content-secondary hover:text-content-primary shadow-sm"
+                    aria-label="Open sidebar"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                  </button>
+                 )}
+               </div>
+            </div>
           )}
 
           <div className="flex-1 flex flex-col w-full min-h-0">
@@ -136,7 +157,7 @@ export const App = () => {
         />
 
         <ThinkingSidebar
-            isOpen={false} // Placeholder: Logic to toggle this sidebar not fully exposed in prompt, defaulting to false/hidden or controlled by logic if implemented
+            isOpen={false} // Hidden by default as per logic
             onClose={() => {}} 
             message={activeMessage}
             sendMessage={logic.sendMessage}

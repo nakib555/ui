@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { Component, type ErrorInfo, type ReactNode } from 'react';
+import React, { type ErrorInfo, type ReactNode } from 'react';
 
 interface ErrorBoundaryProps {
   children?: ReactNode;
@@ -14,14 +14,11 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = {
-      hasError: false,
-      error: null
-    };
-  }
+export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = {
+    hasError: false,
+    error: null,
+  };
 
   public static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
@@ -51,11 +48,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       // Always reload, even if SW cleanup fails
       window.location.reload();
     }
-  };
+  }
 
   private handleDismiss = () => {
     this.setState({ hasError: false, error: null });
-  };
+  }
 
   public render() {
     if (this.state.hasError) {
@@ -71,19 +68,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <p className="text-content-secondary mb-6 text-xs font-mono break-words bg-slate-100 dark:bg-black/20 p-2 rounded">
               {this.state.error?.message || "An unexpected error occurred."}
             </p>
-            <div className="flex flex-col gap-3">
-                <button
-                  onClick={this.handleDismiss}
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-colors shadow-sm w-full"
-                >
-                  Try Again
-                </button>
-                <button
-                  onClick={this.handleReload}
-                  className="px-6 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-content-primary rounded-xl font-semibold transition-colors w-full"
-                >
-                  Reload App
-                </button>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={this.handleDismiss}
+                className="px-4 py-2 text-sm font-semibold text-content-secondary hover:bg-layer-2 rounded-lg transition-colors"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={this.handleReload}
+                className="px-4 py-2 text-sm font-semibold text-white bg-primary-main hover:bg-primary-hover rounded-lg transition-colors"
+              >
+                Reload
+              </button>
             </div>
           </div>
         </div>

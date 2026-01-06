@@ -4,16 +4,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { motion as motionTyped, AnimatePresence } from 'framer-motion';
+import React, { useEffect, useCallback, useRef, Suspense, useState } from 'react';
+import { motion as motionTyped, AnimatePresence, PanInfo, useDragControls } from 'framer-motion';
 const motion = motionTyped as any;
-import { NavItem } from './NavItem';
 import type { ChatSession } from '../../types';
-import { SidebarHeader } from './SidebarHeader';
-import { SearchInput } from './SearchInput';
-import { NewChatButton } from './NewChatButton';
-import { HistoryList } from './HistoryList';
-import { SidebarFooter } from './SidebarFooter';
+
+// Safe lazy load for SidebarContent
+const SidebarContent = React.lazy(() => 
+    import('./SidebarContent').then(module => ({ default: module.SidebarContent }))
+);
 
 type SidebarProps = {
     isOpen: boolean;
@@ -36,7 +35,7 @@ type SidebarProps = {
     isDesktop: boolean;
 };
 
-// Simplified mobile animation variants
+// Side Drawer Style for Mobile (Slides from Left)
 const mobileVariants = {
     open: { x: '0%' },
     closed: { x: '-100%' },
@@ -48,10 +47,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onDeleteChat, onUpdateChatTitle, onSettingsClick,
     isDesktop
 }) => {
-    const [searchQuery, setSearchQuery] = useState('');
     const prevIsDesktop = useRef(isDesktop);
     const [animationDisabledForResize, setAnimationDisabledForResize] = useState(false);
-    const searchInputRef = useRef<HTMLInputElement>(null);
+    const dragControls = useDragControls();
 
     useEffect(() => {
         if (prevIsDesktop.current !== isDesktop) {
@@ -82,20 +80,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         window.addEventListener('mouseup', handleMouseUp);
     }, [setWidth, setIsResizing]);
 
-    const handleNewChat = () => {
-        onNewChat();
-        setSearchQuery('');
-        if (!isDesktop) {
-            setIsOpen(false);
-        }
-    };
-
-    const handleLoadChat = (id: string) => {
-        onLoadChat(id);
-        if (!isDesktop) {
-            setIsOpen(false);
-        }
-    };
     
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -103,13 +87,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 event.preventDefault();
                 if (isCollapsed) setIsCollapsed(false);
                 if (!isOpen && !isDesktop) setIsOpen(true);
-                setTimeout(() => searchInputRef.current?.focus(), 100);
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isCollapsed, isDesktop, isOpen, setIsCollapsed, setIsOpen]);
 
+    const onDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+        if (!isDesktop) {
+            // Close if dragged left sufficiently
+            if (info.offset.x < -100 || (info.velocity.x < -300 && info.offset.x < 0)) {
+                setIsOpen(false);
+            }
+        }
+    };
 
     return (
         <aside className={`h-full flex-shrink-0 ${isDesktop ? 'relative z-20' : 'fixed inset-0 z-40 pointer-events-none'}`}>
@@ -122,7 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.2 }}
                         onClick={() => setIsOpen(false)}
-                        className="fixed inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto" 
+                        className="fixed inset-0 bg-black/40 backdrop-blur-[2px] pointer-events-auto" 
                         style={{ willChange: 'opacity' }}
                     />
                 )}
@@ -140,74 +131,68 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     damping: 30,
                     mass: 0.8,
                 }}
+                // Enable X-axis dragging on mobile to close
+                drag={!isDesktop ? "x" : false}
+                dragListener={!isDesktop} 
+                dragControls={dragControls}
+                dragConstraints={{ left: -1000, right: 0 }} 
+                dragElastic={{ left: 0.5, right: 0 }} 
+                onDragEnd={onDragEnd}
                 style={{
                     height: '100%',
-                    position: isDesktop ? 'relative' : 'absolute',
-                    width: isDesktop ? 'auto' : 300, // Fixed width on mobile for consistency
+                    position: isDesktop ? 'relative' : 'fixed',
+                    width: isDesktop ? 'auto' : '80%',
+                    maxWidth: isDesktop ? undefined : '340px',
                     left: 0,
                     top: 0,
+                    bottom: 0,
                     pointerEvents: 'auto',
                     willChange: isResizing ? 'width' : 'transform, width',
+                    zIndex: isDesktop ? undefined : 50,
                 }}
-                className="bg-layer-1 border-r border-border flex flex-col transform-gpu shadow-2xl md:shadow-none overflow-hidden"
+                className={`bg-layer-1 flex flex-col transform-gpu shadow-2xl md:shadow-none overflow-hidden ${
+                    isDesktop ? 'border-r border-border' : 'border-r border-border'
+                }`}
                 onClick={(e: React.MouseEvent) => e.stopPropagation()}
             >
                 <div 
-                    className="p-3 flex flex-col h-full group"
-                    style={{ userSelect: isResizing ? 'none' : 'auto' }}
+                    className="p-3 flex flex-col h-full group min-h-0 relative"
+                    style={{ 
+                        userSelect: isResizing ? 'none' : 'auto',
+                        // Ensure base padding (12px) is added to safe area inset to prevent clipping on mobile
+                        paddingBottom: !isDesktop ? 'calc(env(safe-area-inset-bottom) + 12px)' : '0.75rem', 
+                        paddingTop: !isDesktop ? 'calc(env(safe-area-inset-top) + 12px)' : '0.75rem'
+                    }}
                 >
-                    <SidebarHeader 
-                        isCollapsed={isCollapsed}
-                        isDesktop={isDesktop}
-                        setIsOpen={setIsOpen} 
-                        setIsCollapsed={setIsCollapsed}
-                    />
-
-                    <SearchInput 
-                        ref={searchInputRef}
-                        isCollapsed={isCollapsed}
-                        isDesktop={isDesktop}
-                        searchQuery={searchQuery}
-                        setSearchQuery={setSearchQuery}
-                    />
-
-                    <NewChatButton
-                        isCollapsed={isCollapsed}
-                        isDesktop={isDesktop}
-                        onClick={handleNewChat}
-                        disabled={isNewChatDisabled}
-                    />
-                    
-                    <motion.div 
-                        className="mb-2 border-t border-border"
-                        initial={false}
-                        animate={{ opacity: isCollapsed ? 0 : 1, height: isCollapsed ? 0 : 'auto' }}
-                        transition={{ duration: 0.3, ease: 'easeInOut' }}
-                    />
-
-                    <HistoryList 
-                        history={history}
-                        isHistoryLoading={isHistoryLoading}
-                        currentChatId={currentChatId}
-                        searchQuery={searchQuery}
-                        isCollapsed={isCollapsed}
-                        isDesktop={isDesktop}
-                        onLoadChat={handleLoadChat}
-                        onDeleteChat={onDeleteChat}
-                        onUpdateChatTitle={onUpdateChatTitle}
-                    />
-                    
-                    <SidebarFooter 
-                        isCollapsed={isCollapsed}
-                        isDesktop={isDesktop}
-                        onSettingsClick={onSettingsClick}
-                    />
+                    <Suspense fallback={
+                        <div className="flex flex-col gap-4 p-4 animate-pulse">
+                            <div className="h-8 bg-slate-200 dark:bg-white/5 rounded"></div>
+                            <div className="h-10 bg-slate-200 dark:bg-white/5 rounded"></div>
+                            <div className="h-40 bg-slate-200 dark:bg-white/5 rounded"></div>
+                        </div>
+                    }>
+                        <SidebarContent 
+                            isCollapsed={isCollapsed}
+                            isDesktop={isDesktop}
+                            setIsOpen={setIsOpen}
+                            setIsCollapsed={setIsCollapsed}
+                            history={history}
+                            isHistoryLoading={isHistoryLoading}
+                            currentChatId={currentChatId}
+                            onNewChat={onNewChat}
+                            isNewChatDisabled={isNewChatDisabled}
+                            onLoadChat={onLoadChat}
+                            onDeleteChat={onDeleteChat}
+                            onUpdateChatTitle={onUpdateChatTitle}
+                            onSettingsClick={onSettingsClick}
+                        />
+                    </Suspense>
                 </div>
 
                 {/* Resize Handle */}
                 {isDesktop && !isCollapsed && (
                     <div
-                        className="group absolute top-0 right-0 h-full z-50 w-4 translate-x-2 cursor-col-resize flex justify-center hover:bg-transparent"
+                        className="group absolute top-0 right-0 h-full z-50 w-4 cursor-col-resize flex justify-center hover:bg-transparent"
                         onMouseDown={startResizing}
                     >
                         <div className={`w-[2px] h-full transition-colors duration-200 ${isResizing ? 'bg-indigo-500' : 'bg-transparent group-hover:bg-indigo-400/50'}`}></div>

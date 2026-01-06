@@ -136,7 +136,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = React.memo((props) =>
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
           onClick={onClose}
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 sm:p-6 overflow-hidden"
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4 sm:p-6 overflow-hidden"
           role="dialog"
           aria-modal="true"
           aria-labelledby="settings-title"

@@ -40,23 +40,6 @@ const ThemePreviewIcon = ({ type, isActive }: { type: string, isActive: boolean 
             return <SkeletonUI bgClass="bg-white" accentClass="bg-indigo-500" textClass="bg-slate-900" />;
         case 'dark':
             return <SkeletonUI bgClass="bg-slate-900" accentClass="bg-indigo-500" textClass="bg-slate-100" />;
-        case 'spocke':
-            return (
-                <div className="w-full h-full p-3 flex flex-col gap-2 bg-black relative overflow-hidden">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-cyan-900/20 via-transparent to-transparent"></div>
-                    <div className="flex gap-2 relative z-10">
-                        <div className="w-1/4 h-2 rounded-full bg-cyan-400/60 shadow-[0_0_8px_rgba(34,211,238,0.4)]"></div>
-                    </div>
-                    <div className="w-full h-8 rounded-md bg-cyan-900/10 border border-cyan-500/20 mt-1"></div>
-                    <div className="flex gap-2 mt-auto relative z-10">
-                        <div className="w-8 h-8 rounded-full bg-cyan-500/20 border border-cyan-500/40"></div>
-                        <div className="flex-1 flex flex-col gap-1.5 justify-center">
-                            <div className="w-full h-1.5 rounded-full bg-slate-700"></div>
-                            <div className="w-2/3 h-1.5 rounded-full bg-slate-800"></div>
-                        </div>
-                    </div>
-                </div>
-            );
         case 'system':
             return (
                 <div className="w-full h-full relative flex overflow-hidden">
@@ -78,13 +61,12 @@ export const ThemeToggle = ({ theme, setTheme, variant = 'compact' }: ThemeToggl
     const options = [
         { value: 'light', label: 'Light', desc: 'Clean & Bright' },
         { value: 'dark', label: 'Dark', desc: 'Easy on the Eyes' },
-        { value: 'spocke', label: 'Spocke', desc: 'High Contrast Neon' },
         { value: 'system', label: 'Auto', desc: 'Follows System' },
     ];
 
     if (variant === 'cards') {
         return (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 w-full">
+            <div className="grid grid-cols-3 gap-3 sm:gap-4 w-full">
                 {options.map((option) => {
                     const isActive = theme === option.value;
                     return (

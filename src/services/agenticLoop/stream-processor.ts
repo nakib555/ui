@@ -20,7 +20,7 @@ export interface StreamCallbacks {
 
 /**
  * Processes a streaming response from the backend API.
- * Uses a time-based buffer to batch rapid text chunks for UI performance.
+ * Uses a time-based and size-based buffer to batch rapid text chunks for optimal UI performance.
  */
 export const processBackendStream = async (response: Response, callbacks: StreamCallbacks, signal?: AbortSignal) => {
     if (!response.body) {
@@ -32,12 +32,10 @@ export const processBackendStream = async (response: Response, callbacks: Stream
     let buffer = '';
 
     // --- Performance Optimization: Buffered State Updates ---
-    // Increased flush interval to 60ms.
-    // Why? The typewriter hook runs at ~33ms (30fps).
-    // Feeding it data faster than it can render just builds up a React state queue.
-    // 60ms ensures we send larger chunks of text fewer times per second, 
-    // freeing up the JS Event Loop for UI interactions (scrolling, clicking).
-    const FLUSH_INTERVAL_MS = 60; 
+    // A flush interval of 50ms provides a good balance between "real-time" feel and React render efficiency.
+    // We also implement a size-based trigger to prevent holding too much data if the stream is very fast.
+    const FLUSH_INTERVAL_MS = 50; 
+    const MAX_BUFFER_SIZE = 250; // Characters. Flush immediately if buffer exceeds this.
     const WATCHDOG_TIMEOUT_MS = 45000;
 
     let pendingText: string | null = null;
@@ -88,9 +86,11 @@ export const processBackendStream = async (response: Response, callbacks: Stream
                         // ACCUMULATE deltas instead of replacing
                         pendingText = (pendingText || '') + event.payload; 
                         
-                        // Check for artifact tags in the pending text to trigger immediate flush
-                        // This ensures the renderer sees the opening tag ASAP for faster feedback
-                        if (pendingText && (pendingText.includes('[ARTIFACT') || pendingText.includes('[/ARTIFACT'))) {
+                        const isBufferFull = pendingText!.length >= MAX_BUFFER_SIZE;
+                        const hasArtifactTag = pendingText!.includes('[ARTIFACT') || pendingText!.includes('[/ARTIFACT') || pendingText!.includes('[STEP]');
+
+                        // Flush if buffer is full or we hit a special tag that needs immediate rendering logic
+                        if (isBufferFull || hasArtifactTag) {
                             flushTextUpdates();
                         } else if (flushTimeoutId === null) {
                             flushTimeoutId = setTimeout(flushTextUpdates, FLUSH_INTERVAL_MS);
@@ -149,6 +149,9 @@ export const processBackendStream = async (response: Response, callbacks: Stream
         // If it's a timeout or network error, report it
         if (e.message && (e.message.includes("timeout") || e.message.includes("network"))) {
             callbacks.onError({ message: "Stream connection lost or timed out." });
+        } else if (e.name !== 'AbortError') {
+             // Only report actual errors, not user cancellations
+             callbacks.onError({ message: e.message || "Stream processing failed" });
         }
     } finally {
         // Cleanup any pending flush on stream end/error/close

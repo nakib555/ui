@@ -4,17 +4,72 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useTheme } from '../../hooks/useTheme';
+import { useSyntaxTheme } from '../../hooks/useSyntaxTheme';
 
+// Comprehensive alias map to handle various LLM outputs
 const languageMap: { [key: string]: string } = {
-    js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
-    py: 'python', shell: 'bash', bash: 'bash', sh: 'bash',
-    html: 'html', css: 'css', json: 'json', yaml: 'yaml', yml: 'yaml',
-    md: 'markdown', sql: 'sql', java: 'java', c: 'c', cpp: 'cpp',
-    csharp: 'csharp', go: 'go', rust: 'rust',
+    // JavaScript / TypeScript
+    js: 'javascript', javascript: 'javascript', jsx: 'javascript',
+    ts: 'typescript', typescript: 'typescript', tsx: 'typescript',
+    
+    // Python
+    py: 'python', python: 'python', python3: 'python',
+    
+    // Shell
+    sh: 'bash', bash: 'bash', shell: 'bash', zsh: 'bash', console: 'bash',
+    
+    // Web - Updated to preserve 'html' for better UI labels
+    html: 'html', xml: 'xml', svg: 'svg', markup: 'html',
+    css: 'css', scss: 'scss', sass: 'scss', less: 'less',
+    
+    // Data Formats
+    json: 'json', jsonc: 'json',
+    yaml: 'yaml', yml: 'yaml',
+    toml: 'toml',
+    csv: 'csv',
+    
+    // Backend / Systems
+    java: 'java',
+    c: 'c', h: 'c',
+    cpp: 'cpp', 'c++': 'cpp', hpp: 'cpp', cc: 'cpp',
+    csharp: 'csharp', 'c#': 'csharp', cs: 'csharp', dotnet: 'csharp',
+    go: 'go', golang: 'go',
+    rust: 'rust', rs: 'rust',
+    php: 'php',
+    ruby: 'ruby', rb: 'ruby',
+    perl: 'perl', pl: 'perl',
+    lua: 'lua',
+    r: 'r',
+    swift: 'swift',
+    kotlin: 'kotlin', kt: 'kotlin',
+    scala: 'scala',
+    groovy: 'groovy',
+    dart: 'dart',
+    
+    // Systems & Config
+    dockerfile: 'dockerfile', docker: 'dockerfile',
+    makefile: 'makefile', mk: 'makefile',
+    cmake: 'cmake',
+    nginx: 'nginx',
+    apache: 'apacheconf',
+    
+    // Others
+    sql: 'sql', mysql: 'sql', postgres: 'sql', postgresql: 'sql', plsql: 'plsql',
+    md: 'markdown', markdown: 'markdown',
+    latex: 'latex', tex: 'latex',
+    matlab: 'matlab',
+    powershell: 'powershell', ps1: 'powershell',
+    batch: 'batch', bat: 'batch', cmd: 'batch',
+    diff: 'diff',
+    vim: 'vim',
+    git: 'git',
+    graphql: 'graphql',
+    solidity: 'solidity', sol: 'solidity',
+    
+    // Fallbacks
+    text: 'text', plaintext: 'text', txt: 'text', raw: 'text'
 };
 
 const runnableLanguages = ['javascript', 'js', 'jsx', 'python', 'py', 'typescript', 'ts', 'tsx'];
@@ -29,7 +84,7 @@ type CodeBlockProps = {
 
 export const CodeBlock: React.FC<CodeBlockProps> = ({ language, children, isStreaming, onRunCode, isDisabled }) => {
     const [isCopied, setIsCopied] = useState(false);
-    const { theme } = useTheme();
+    const syntaxStyle = useSyntaxTheme();
 
     const codeContent = String(children).replace(/\n$/, '');
 
@@ -47,27 +102,40 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language, children, isStre
       }
     };
 
+    // Normalize language
+    const { highlighterLang, displayLang } = useMemo(() => {
+        const raw = (language || 'text').toLowerCase().trim();
+        const mapped = languageMap[raw] || raw;
+        
+        // Formatted name for display
+        let display = raw;
+        if (language) {
+             // Heuristic for capitalizing commonly used languages correctly
+             if (['html', 'css', 'json', 'xml', 'sql', 'php'].includes(raw)) display = raw.toUpperCase();
+             else display = raw.charAt(0).toUpperCase() + raw.slice(1);
+        }
+
+        return { highlighterLang: mapped, displayLang: display };
+    }, [language]);
+
     const handleOpenArtifact = () => {
         // Dispatch event for AppLogic to catch
+        // IMPORTANT: Send the normalized highlighterLang so the Artifact sidebar
+        // receives a language supported by its SyntaxHighlighter instance (e.g. 'javascript' instead of 'js')
         window.dispatchEvent(new CustomEvent('open-artifact', { 
-            detail: { code: codeContent, language: language || 'plaintext' } 
+            detail: { code: codeContent, language: highlighterLang } 
         }));
     };
-    
-    const isDarkMode = theme === 'dark' || theme === 'spocke' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    
-    const rawLanguage = language ? language.toLowerCase() : 'plaintext';
-    const highlighterLang = languageMap[rawLanguage] || rawLanguage;
-    const formattedLanguage = language ? language.charAt(0).toUpperCase() + language.slice(1) : '';
-    const isRunnable = onRunCode && runnableLanguages.includes(rawLanguage);
+
+    const isRunnable = onRunCode && runnableLanguages.includes((language || '').toLowerCase());
 
     return (
-      <div className="my-6 rounded-xl overflow-hidden border border-border-default bg-code-surface shadow-sm font-sans group">
+      <div className="my-6 rounded-xl overflow-hidden shadow-sm font-sans group bg-code-surface transition-colors duration-300">
         {/* Header */}
-        <div className="flex justify-between items-center px-4 py-2 bg-layer-2/50 border-b border-border-subtle select-none">
+        <div className="flex justify-between items-center px-4 py-2 bg-layer-2/50 border-b border-border-subtle select-none backdrop-blur-sm">
           <div className="flex items-center gap-3">
-             <span className="text-xs font-semibold text-content-tertiary lowercase font-mono">
-                {formattedLanguage || 'text'}
+             <span className="text-xs font-semibold text-content-tertiary font-mono">
+                {displayLang}
              </span>
           </div>
           
@@ -113,22 +181,23 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language, children, isStre
         </div>
         
         {/* Editor Body */}
-        <div className="relative overflow-x-auto text-[13px] leading-6 scrollbar-thin text-code-text">
+        <div className="relative overflow-x-auto text-[13px] leading-6 scrollbar-thin">
             <SyntaxHighlighter
-              language={highlighterLang}
-              style={isDarkMode ? vscDarkPlus : oneLight}
+              language={highlighterLang === 'html' ? 'markup' : highlighterLang} // Map html to markup for syntax highlighter if needed
+              style={syntaxStyle}
               customStyle={{
                 margin: 0,
                 padding: '1.25rem',
-                backgroundColor: 'transparent',
+                background: 'transparent',
                 fontFamily: "'Fira Code', 'Consolas', monospace",
-                color: 'inherit', // Force text color inheritance
               }}
               codeTagProps={{
-                  style: { fontFamily: "inherit", color: 'inherit' }
+                  style: { fontFamily: "inherit" }
               }}
               wrapLines={true}
               wrapLongLines={false}
+              // Safely fallback to text if language fails loading in Prism
+              fallbackLanguage="text"
             >
               {codeContent}
             </SyntaxHighlighter>

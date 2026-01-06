@@ -126,8 +126,8 @@ try {
     },
     sourcemap: true,
     define: {
-      'process.env.NODE_ENV': '"development"',
-      'process.env.APP_VERSION': JSON.stringify(process.env.APP_VERSION),
+      'import.meta.env.DEV': 'true',
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(process.env.APP_VERSION),
       'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
     },
   });

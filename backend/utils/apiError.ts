@@ -1,4 +1,3 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -146,6 +145,15 @@ export const parseApiError = (error: any): MessageError => {
             code: 'NETWORK_ERROR',
             message: 'Network Error',
             details: `A network problem occurred, possibly due to a lost internet connection. Original error: ${details}`
+        };
+    }
+
+    // Handle File System Errors (ENOENT, write failed)
+    if (lowerCaseMessage.includes('failed to save') || lowerCaseMessage.includes('write failed') || lowerCaseMessage.includes('enoent') || lowerCaseMessage.includes('rename')) {
+        return {
+            code: 'FILE_SYSTEM_ERROR',
+            message: 'Storage Error',
+            details: `The server failed to save data to persistent storage. This might be a temporary filesystem issue. Details: ${message}`
         };
     }
 

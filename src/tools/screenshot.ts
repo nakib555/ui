@@ -1,10 +1,10 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import { FunctionDeclaration, Type } from "@google/genai";
-import html2canvas from 'html2canvas';
 import { ToolError } from '../types';
 
 export const captureCodeOutputScreenshotDeclaration: FunctionDeclaration = {
@@ -39,6 +39,9 @@ export const executeCaptureCodeOutputScreenshot = async (args: { outputId: strin
     // Yield to the event loop, allowing the UI to update with a loading state
     // before we start the blocking html2canvas operation.
     await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Dynamically import html2canvas only when needed
+    const html2canvas = (await import('html2canvas')).default;
 
     const canvas = await html2canvas(elementToCapture, {
       allowTaint: true,

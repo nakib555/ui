@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -218,12 +219,8 @@ export const apiHandler = async (req: any, res: any) => {
                 if (!savedChat) return res.status(404).json({ error: "Chat not found" });
 
                 let historyMessages = savedChat.messages || [];
-                if (task === 'regenerate' && messageId) {
-                    const targetIndex = historyMessages.findIndex((m: any) => m.id === messageId);
-                    if (targetIndex !== -1) {
-                        historyMessages = historyMessages.slice(0, targetIndex);
-                    }
-                }
+                // Context for the AI to read (everything before the new/regenerating message)
+                let historyForAI: any[] = [];
 
                 if (task === 'chat' && newMessage) {
                     historyMessages.push(newMessage);
@@ -242,24 +239,37 @@ export const apiHandler = async (req: any, res: any) => {
                     };
                     historyMessages.push(modelPlaceholder);
                     savedChat = await historyControl.updateChat(chatId, { messages: historyMessages });
+                    historyForAI = historyMessages.slice(0, -1);
                 } else if (task === 'regenerate') {
-                     const modelPlaceholder = {
-                        id: messageId,
-                        role: 'model' as const,
-                        text: '',
-                        isThinking: true,
-                        startTime: Date.now(),
-                        responses: [{ text: '', toolCallEvents: [], startTime: Date.now() }],
-                        activeResponseIndex: 0
-                    };
-                    historyMessages.push(modelPlaceholder);
-                    savedChat = await historyControl.updateChat(chatId, { messages: historyMessages });
+                     // NEW LOGIC:
+                     // The frontend handles the branching/placeholder setup via updateChat before calling this.
+                     // We just need to identify the message to calculate the preceding context.
+                     const targetIndex = historyMessages.findIndex((m: any) => m.id === messageId);
+                     
+                     if (targetIndex !== -1) {
+                         // Context is everything BEFORE the target message
+                         historyForAI = historyMessages.slice(0, targetIndex);
+                         // We do NOT modify the history array or save here, preserving the structure set by frontend.
+                     } else {
+                         // Fallback: If message doesn't exist (e.g. race condition or direct API call), create it.
+                         const modelPlaceholder = {
+                            id: messageId,
+                            role: 'model' as const,
+                            text: '',
+                            isThinking: true,
+                            startTime: Date.now(),
+                            responses: [{ text: '', toolCallEvents: [], startTime: Date.now() }],
+                            activeResponseIndex: 0
+                        };
+                        historyMessages.push(modelPlaceholder);
+                        savedChat = await historyControl.updateChat(chatId, { messages: historyMessages });
+                        historyForAI = historyMessages.slice(0, -1);
+                     }
                 }
 
                 if (!savedChat) throw new Error("Failed to initialize chat persistence");
 
                 const persistence = new ChatPersistenceManager(chatId, messageId);
-                const historyForAI = historyMessages.slice(0, -1);
 
                 // --- RAG RETRIEVAL STEP ---
                 let ragContext = "";

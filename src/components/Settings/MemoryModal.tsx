@@ -244,7 +244,10 @@ export const MemoryModal: React.FC<MemoryModalProps> = ({ isOpen, onClose, memor
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="fixed inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 sm:p-6 overflow-hidden"
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[80] flex items-center justify-center p-4 sm:p-6 overflow-hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="memory-modal-title"
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -268,7 +271,7 @@ export const MemoryModal: React.FC<MemoryModalProps> = ({ isOpen, onClose, memor
                             <Icons.MemoryChip />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Memory Bank</h2>
+                            <h2 id="memory-modal-title" className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Memory Bank</h2>
                             <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                                 Manage persistent knowledge files
                             </p>

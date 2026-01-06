@@ -1,3 +1,4 @@
+
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig, loadEnv } from 'vite';
@@ -67,8 +68,8 @@ export default defineConfig(({ mode }) => {
     // Fallback version if not provided by build system
     const appVersion = process.env.APP_VERSION || 'v1.0.0';
     
-    // Prioritize VITE_API_BASE_URL, fallback to API_BASE_URL, default to provided Render URL, then empty string
-    const apiBaseUrl = env.VITE_API_BASE_URL || env.API_BASE_URL || 'https://agentic-ai-51bu.onrender.com';
+    // Prioritize VITE_API_BASE_URL, fallback to API_BASE_URL, then an empty string for relative paths.
+    const apiBaseUrl = env.VITE_API_BASE_URL || env.API_BASE_URL || '';
 
     return {
       server: {
@@ -81,8 +82,6 @@ export default defineConfig(({ mode }) => {
       ],
       define: {
         // Expose env vars to the client
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
         // Explicitly define API base URL for build-time replacement
         'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
@@ -96,6 +95,9 @@ export default defineConfig(({ mode }) => {
               'syntax-highlighter': ['react-syntax-highlighter'],
               'markdown': ['react-markdown', 'rehype-katex', 'rehype-raw', 'remark-gfm', 'remark-math'],
               'gemini': ['@google/genai'],
+              'sandpack': ['@codesandbox/sandpack-react'],
+              'virtuoso': ['react-virtuoso'],
+              'html2canvas': ['html2canvas'],
             }
           }
         }

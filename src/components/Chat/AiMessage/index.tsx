@@ -1,9 +1,10 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, memo, useMemo } from 'react';
+import React, { useState, useEffect, memo, useMemo, Suspense } from 'react';
 import { motion as motionTyped, AnimatePresence } from 'framer-motion';
 const motion = motionTyped as any;
 import type { Message, Source } from '../../../types';
@@ -24,7 +25,9 @@ import { BrowserSessionDisplay } from '../../AI/BrowserSessionDisplay';
 import { useTypewriter } from '../../../hooks/useTypewriter';
 import { parseContentSegments } from '../../../utils/workflowParsing';
 import { ThinkingProcess } from './ThinkingProcess';
-import { ArtifactRenderer } from '../../Artifacts/ArtifactRenderer';
+
+// Lazy load the heavy ArtifactRenderer
+const ArtifactRenderer = React.lazy(() => import('../../Artifacts/ArtifactRenderer').then(m => ({ default: m.ArtifactRenderer })));
 
 // Optimized spring physics for performance
 const animationProps = {
@@ -173,8 +176,16 @@ const AiMessageRaw: React.FC<AiMessageProps> = (props) => {
                         case 'MAP': return <motion.div key={key} initial={{ opacity: 0 }} animate={{ opacity: 1 }}><MapDisplay {...data} /></motion.div>;
                         case 'FILE': return <FileAttachment key={key} {...data} />;
                         case 'BROWSER': return <BrowserSessionDisplay key={key} {...data} />;
-                        case 'ARTIFACT_CODE': return <ArtifactRenderer key={key} type="code" content={data.code} language={data.language} title={data.title} />;
-                        case 'ARTIFACT_DATA': return <ArtifactRenderer key={key} type="data" content={data.content} title={data.title} />;
+                        case 'ARTIFACT_CODE': return (
+                            <Suspense fallback={<div className="h-64 w-full bg-gray-100 dark:bg-white/5 rounded-xl animate-pulse my-4" />}>
+                                <ArtifactRenderer key={key} type="code" content={data.code} language={data.language} title={data.title} />
+                            </Suspense>
+                        );
+                        case 'ARTIFACT_DATA': return (
+                            <Suspense fallback={<div className="h-64 w-full bg-gray-100 dark:bg-white/5 rounded-xl animate-pulse my-4" />}>
+                                <ArtifactRenderer key={key} type="data" content={data.content} title={data.title} />
+                            </Suspense>
+                        );
                         case 'CODE_OUTPUT': return null; 
                         default: return <ErrorDisplay key={key} error={{ message: `Unknown component: ${componentType}`, details: JSON.stringify(data) }} />;
                     }

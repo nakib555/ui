@@ -6,10 +6,9 @@
 
 import lightTheme from '../theme/light';
 import darkTheme from '../theme/dark';
-import spockeTheme from '../theme/spocke';
 import systemTheme from '../theme/system';
 
-export type ThemeMode = 'light' | 'dark' | 'spocke' | 'system';
+export type ThemeMode = 'light' | 'dark' | 'system';
 
 class ThemeControlCenterService {
   private currentMode: ThemeMode = 'system';
@@ -58,10 +57,9 @@ class ThemeControlCenterService {
   /**
    * Loads the specific theme file and injects values into the DOM.
    */
-  private applyThemeFile(theme: 'light' | 'dark' | 'spocke') {
+  private applyThemeFile(theme: 'light' | 'dark') {
     let themeTokens;
     switch (theme) {
-        case 'spocke': themeTokens = spockeTheme; break;
         case 'dark': themeTokens = darkTheme; break;
         default: themeTokens = lightTheme; break;
     }
@@ -82,9 +80,7 @@ class ThemeControlCenterService {
         }
 
         // 3. Toggle Tailwind Class (The Utilities)
-        // Spocke is fundamentally a dark theme, so we enable the 'dark' class
-        // to utilize dark-mode Tailwind variants (e.g. dark:bg-...).
-        if (theme === 'dark' || theme === 'spocke') {
+        if (theme === 'dark') {
           root.classList.add('dark');
           root.classList.remove('light');
         } else {

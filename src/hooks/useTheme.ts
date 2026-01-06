@@ -14,7 +14,11 @@ export const useTheme = () => {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       if (typeof window !== 'undefined') {
-        return (localStorage.getItem('theme') as Theme) || 'system';
+        const stored = localStorage.getItem('theme') as Theme;
+        // Validate against known themes (if Spocke was stored, it falls back to system)
+        if (stored === 'light' || stored === 'dark' || stored === 'system') {
+            return stored;
+        }
       }
     } catch (e) {
       console.warn('Failed to access localStorage for theme:', e);

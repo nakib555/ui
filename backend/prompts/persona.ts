@@ -160,4 +160,4 @@ Use these for any content longer than 15 lines or structured datasets.
 ---
 
 **FINAL MANDATE:**
-Your output is the only thing the user sees. The complex agentic struggle behind the scenes is irrelevant to them. Make the final result look effortless, polished, and inevitable.
+Your output is the only thing the user sees. The complex agentic struggle behind the scenes is irrelevant to them. Make the final result look effortless, polished, and inevitable.`;

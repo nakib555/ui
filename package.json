@@ -1,7 +1,16 @@
+
 {
   "name": "agentic-ai-chat",
   "version": "1.0.0",
   "description": "A responsive chat application powered by the Gemini API, featuring an agentic AI persona.",
+  "keywords": [
+    "react",
+    "gemini",
+    "ai",
+    "chat",
+    "agentic",
+    "math"
+  ],
   "private": true,
   "type": "module",
   "engines": {
@@ -9,16 +18,11 @@
   },
   "scripts": {
     "build": "npm run build:client && npm run build:server",
-    "build:client": "npm run type-check && npm run vite:build && npm run tailwind:build",
+    "build:client": "tsc && vite build && npx tailwindcss -i ./src/styles/main.css -o ./dist/styles/main.css --minify",
     "build:server": "esbuild backend/server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:playwright",
-    "type-check": "tsc",
-    "vite:build": "vite build",
-   "tailwind:build": "tailwindcss -i ./src/styles/main.css -o ./dist/styles/main.css --minify",
     "start": "node dist/server.cjs",
     "dev": "node dev.js",
-    "deploy": "npm run build:client && npm run pages:deploy",
-    "pages:deploy": "wrangler pages deploy dist",
-    "lint": "eslint ."
+    "deploy": "npm run build:client && wrangler pages deploy dist"
   },
   "dependencies": {
     "@codesandbox/sandpack-react": "2.20.0",

@@ -8,18 +8,18 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "npm run build:client && npm run build:server",
-    "build:client": "npm run type-check && npm run vite:build && npm run tailwind:build",
-    "build:server": "esbuild backend/server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:playwright",
-    "type-check": "tsc",
-    "vite:build": "vite build",
-    "tailwind:build": "tailwindcss -i ./src/styles/main.css -o ./dist/styles/main.css --minify",
-    "start": "node dist/server.cjs",
-    "dev": "node dev.js",
-    "deploy": "npm run build:client && npm run pages:deploy",
-    "pages:deploy": "wrangler pages deploy dist",
-    "lint": "eslint ."
-  },
+  "build": "npm run build:client && npm run build:server",
+  "build:client": "npm run type-check && npm run vite:build && npm run tailwind:build",
+  "build:server": "esbuild backend/server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:playwright",
+  "type-check": "tsc",
+  "vite:build": "vite build",
+  "tailwind:build": "npx tailwindcss -i ./src/styles/main.css -o ./dist/styles/main.css --minify",
+  "start": "node dist/server.cjs",
+  "dev": "node dev.js",
+  "deploy": "npm run build:client && npm run pages:deploy",
+  "pages:deploy": "wrangler pages deploy dist",
+  "lint": "eslint ."
+},
   "dependencies": {
     "@codesandbox/sandpack-react": "2.20.0",
     "@google/genai": "^1.34.0",

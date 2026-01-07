@@ -7,7 +7,6 @@ const CACHE_NAME = 'agentic-ai-cache-{{VERSION}}';
 const PRECACHE_ASSETS = [
     '/',
     '/index.html',
-    '/styles/main.css',
     '/favicon.svg',
     '/manifest.json',
 ];

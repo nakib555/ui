@@ -1,3 +1,4 @@
+
 import esbuild from 'esbuild';
 import { spawn, execSync } from 'child_process';
 import cpx from 'cpx';
@@ -109,7 +110,7 @@ try {
 try {
   // Determine API Base URL from env or default to provided Render URL if not in dev mode logic
   // For local dev, we usually want localhost, but we allow override via env var.
-  const apiBaseUrl = process.env.VITE_API_BASE_URL || process.env.API_BASE_URL || '';
+  const apiBaseUrl = process.env.VITE_API_BASE_URL || process.env.API_BASE_URL || process.env.BACKEND_URL || '';
 
   const frontendBuilder = await esbuild.context({
     entryPoints: ['src/index.tsx'],

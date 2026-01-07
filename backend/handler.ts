@@ -555,7 +555,6 @@ ${coreInstruction}
                 }
                 break;
             }
-            // ... (other cases remain the same) ...
             case 'tool_response': {
                 const { callId, result, error } = req.body;
                 const resolver = frontendToolRequests.get(callId);

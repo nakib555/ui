@@ -112,12 +112,30 @@ export const deleteAllHistory = async (req: any, res: any) => {
 export const importChat = async (req: any, res: any) => {
     try {
         const importedChat = req.body as ChatSession;
-        if (!importedChat || typeof importedChat.title !== 'string' || !Array.isArray(importedChat.messages)) {
-            return res.status(400).json({ error: "Invalid chat file format." });
+        
+        // Robust Validation
+        if (!importedChat || typeof importedChat !== 'object') {
+             return res.status(400).json({ error: "Invalid chat format: Root must be an object." });
         }
+        if (typeof importedChat.title !== 'string') {
+             return res.status(400).json({ error: "Invalid chat format: Title missing or invalid." });
+        }
+        if (!Array.isArray(importedChat.messages)) {
+             return res.status(400).json({ error: "Invalid chat format: Messages array missing." });
+        }
+        
+        // Deep check a few messages to ensure structure
+        const isValidStructure = importedChat.messages.every((m: any) => 
+            m && typeof m.id === 'string' && (m.role === 'user' || m.role === 'model')
+        );
+        
+        if (!isValidStructure) {
+             return res.status(400).json({ error: "Invalid chat format: Corrupt message structure." });
+        }
+
         const newChat: ChatSession = {
             ...importedChat,
-            id: generateId(),
+            id: generateId(), // Always regenerate ID to avoid collision
             createdAt: Date.now(),
             isLoading: false,
         };

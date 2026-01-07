@@ -268,7 +268,7 @@ const ServerUrlInput = ({
     return (
         <SettingItem 
             label="Backend Server URL" 
-            description="Override the default backend URL. Useful if you are self-hosting or experiencing connection issues." 
+            description="Override the API base URL. Defaults to 'BACKEND_URL' env var or relative path. Useful for self-hosting or split deployments." 
             layout="col"
         >
             <form onSubmit={handleVerify} className="space-y-4">

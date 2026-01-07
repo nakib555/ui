@@ -1,3 +1,4 @@
+
 services:
   # Full Stack Service (Monolith)
   # Serves both the Node.js API and the React Frontend
@@ -17,6 +18,8 @@ services:
         value: production
       - key: GEMINI_API_KEY
         sync: false # You will be prompted to enter this in the Render Dashboard
+      - key: BACKEND_URL
+        sync: false # Optional: Set if you need to override the API base URL
       - key: DATA_DIR
         value: /var/lib/data
     disk:

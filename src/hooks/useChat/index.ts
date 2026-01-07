@@ -34,8 +34,25 @@ export const useChat = (
     apiKey: string,
     onShowToast?: (message: string, type: 'info' | 'success' | 'error') => void
 ) => {
-    const chatHistoryHook = useChatHistory();
-    const { chatHistory, currentChatId, updateChatTitle, updateChatProperty } = chatHistoryHook;
+    // Destructure all necessary methods from the history hook
+    const { 
+        chatHistory, 
+        currentChatId, 
+        isHistoryLoading,
+        updateChatTitle, 
+        updateChatProperty,
+        updateMessage,
+        setChatLoadingState,
+        completeChatLoading,
+        updateActiveResponseOnMessage,
+        addMessagesToChat,
+        startNewChat: startNewChatHistory,
+        loadChat: loadChatHistory,
+        deleteChat: deleteChatHistory,
+        clearAllChats: clearAllChatsHistory,
+        importChat
+    } = useChatHistory();
+
     const abortControllerRef = useRef<AbortController | null>(null);
     const requestIdRef = useRef<string | null>(null); 
     const testResolverRef = useRef<((value: Message | PromiseLike<Message>) => void) | null>(null);
@@ -97,7 +114,7 @@ export const useChat = (
             if (currentChat?.messages?.length) {
                 const lastMessage = currentChat.messages[currentChat.messages.length - 1];
                 
-                chatHistoryHook.updateActiveResponseOnMessage(chatId, lastMessage.id, () => ({
+                updateActiveResponseOnMessage(chatId, lastMessage.id, () => ({
                     error: { 
                         code: 'STOPPED_BY_USER', 
                         message: 'Generation stopped by user.',
@@ -105,8 +122,8 @@ export const useChat = (
                     },
                     endTime: Date.now()
                 }));
-                chatHistoryHook.updateMessage(chatId, lastMessage.id, { isThinking: false });
-                chatHistoryHook.completeChatLoading(chatId);
+                updateMessage(chatId, lastMessage.id, { isThinking: false });
+                completeChatLoading(chatId);
 
                 // Fallback for plan approval state cancellation if we are stuck there
                 if (lastMessage.executionState === 'pending_approval') {
@@ -116,9 +133,7 @@ export const useChat = (
                 }
             }
         }
-    }, [handleFrontendToolExecution, chatHistoryHook]);
-    
-    const { updateMessage } = chatHistoryHook;
+    }, [handleFrontendToolExecution, updateActiveResponseOnMessage, updateMessage, completeChatLoading]);
     
     const approveExecution = useCallback((editedPlan: string) => {
         const chatId = currentChatIdRef.current;
@@ -155,7 +170,7 @@ export const useChat = (
         if (abortControllerRef.current) return; // Already connected or generating
 
         console.log(`[FRONTEND] Attempting to reconnect to stream for chat ${chatId}...`);
-        chatHistoryHook.setChatLoadingState(chatId, true);
+        setChatLoadingState(chatId, true);
         abortControllerRef.current = new AbortController();
 
         try {
@@ -163,15 +178,16 @@ export const useChat = (
                 method: 'POST', // Connect task is POST to send body
                 headers: { 'Content-Type': 'application/json' },
                 signal: abortControllerRef.current.signal,
-                body: JSON.stringify({ chatId })
+                body: JSON.stringify({ chatId }),
+                silent: true // Suppress 404 errors during reconnection checks
             });
 
             if (!response.ok) {
                 if (response.status === 404) {
                     console.warn("[FRONTEND] Stream not found (404). Assuming completion.");
                     // Ensure local state is consistent
-                    chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
-                    chatHistoryHook.completeChatLoading(chatId);
+                    updateMessage(chatId, messageId, { isThinking: false });
+                    completeChatLoading(chatId);
                 } else {
                     throw new Error(`Reconnection failed: ${response.status}`);
                 }
@@ -184,7 +200,7 @@ export const useChat = (
                 response,
                 {
                     onTextChunk: (delta) => {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (current) => {
+                        updateActiveResponseOnMessage(chatId, messageId, (current) => {
                             const newText = (current.text || '') + delta;
                             const parsedWorkflow = parseAgenticWorkflow(newText, current.toolCallEvents || [], false);
                             return { text: newText, workflow: parsedWorkflow };
@@ -198,7 +214,7 @@ export const useChat = (
                         // Current backend implementation replays full buffer.
                         // We need to merge intelligently or just replace?
                         // For simplicity in this implementation, we append/merge by ID.
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                        updateActiveResponseOnMessage(chatId, messageId, (r) => {
                             const existingIds = new Set(r.toolCallEvents?.map(e => e.id));
                             const newEvents = toolCallEvents.filter(e => !existingIds.has(e.id)).map(e => ({...e, startTime: e.startTime || Date.now()}));
                             const updatedEvents = [...(r.toolCallEvents || []), ...newEvents];
@@ -207,7 +223,7 @@ export const useChat = (
                         });
                     },
                     onToolUpdate: (payload) => {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                        updateActiveResponseOnMessage(chatId, messageId, (r) => {
                             const updatedEvents = r.toolCallEvents?.map(tc => {
                                 if (tc.id === payload.id) {
                                     const session = (tc.browserSession || { url: payload.url || '', logs: [], status: 'running' }) as BrowserSession;
@@ -224,7 +240,7 @@ export const useChat = (
                         });
                     },
                     onToolCallEnd: (payload) => {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                        updateActiveResponseOnMessage(chatId, messageId, (r) => {
                             const updatedEvents = r.toolCallEvents?.map(tc => tc.id === payload.id ? { ...tc, result: payload.result, endTime: Date.now() } : tc);
                             const parsedWorkflow = parseAgenticWorkflow(r.text || '', updatedEvents || [], false);
                             return { toolCallEvents: updatedEvents, workflow: parsedWorkflow };
@@ -232,14 +248,14 @@ export const useChat = (
                     },
                     onPlanReady: (plan) => {
                         const payload = plan as any; 
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, () => ({ plan: payload }));
-                        chatHistoryHook.updateMessage(chatId, messageId, { executionState: 'pending_approval' });
+                        updateActiveResponseOnMessage(chatId, messageId, () => ({ plan: payload }));
+                        updateMessage(chatId, messageId, { executionState: 'pending_approval' });
                     },
                     onFrontendToolRequest: (callId, toolName, toolArgs) => {
                         handleFrontendToolExecution(callId, toolName, toolArgs);
                     },
                     onComplete: (payload) => {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                        updateActiveResponseOnMessage(chatId, messageId, (r) => {
                             const finalWorkflow = parseAgenticWorkflow(payload.finalText, r.toolCallEvents || [], true);
                             return { 
                                 text: payload.finalText, 
@@ -248,17 +264,17 @@ export const useChat = (
                                 workflow: finalWorkflow 
                             };
                         });
-                        chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
-                        chatHistoryHook.completeChatLoading(chatId);
+                        updateMessage(chatId, messageId, { isThinking: false });
+                        completeChatLoading(chatId);
                     },
                     onError: (error) => {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, () => ({ error: parseApiError(error), endTime: Date.now() }));
-                        chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
-                        chatHistoryHook.completeChatLoading(chatId);
+                        updateActiveResponseOnMessage(chatId, messageId, () => ({ error: parseApiError(error), endTime: Date.now() }));
+                        updateMessage(chatId, messageId, { isThinking: false });
+                        completeChatLoading(chatId);
                     },
                     onCancel: () => {
-                        chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
-                        chatHistoryHook.completeChatLoading(chatId);
+                        updateMessage(chatId, messageId, { isThinking: false });
+                        completeChatLoading(chatId);
                     }
                 },
                 abortControllerRef.current.signal
@@ -267,12 +283,12 @@ export const useChat = (
         } catch (error) {
             console.error("[FRONTEND] Reconnection error:", error);
             // On hard fail, assume stopped
-            chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
-            chatHistoryHook.completeChatLoading(chatId);
+            updateMessage(chatId, messageId, { isThinking: false });
+            completeChatLoading(chatId);
         } finally {
             abortControllerRef.current = null;
         }
-    }, [chatHistoryHook, handleFrontendToolExecution]);
+    }, [updateActiveResponseOnMessage, updateMessage, completeChatLoading, setChatLoadingState, handleFrontendToolExecution]);
 
     // Check for potential reconnection needs on mount/chat switch
     useEffect(() => {
@@ -293,7 +309,7 @@ export const useChat = (
                 }
             }
         }
-    }, [currentChatId, connectToActiveStream]); // chatHistory dependency removed to prevent loops, relying on ref/mount logic
+    }, [currentChatId, connectToActiveStream]);
 
     // Reset attempt flag on chat change
     useEffect(() => {
@@ -366,7 +382,7 @@ export const useChat = (
                         requestIdRef.current = requestId;
                     },
                     onTextChunk: (delta) => {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (current) => {
+                        updateActiveResponseOnMessage(chatId, messageId, (current) => {
                             const newText = (current.text || '') + delta;
                             const parsedWorkflow = parseAgenticWorkflow(newText, current.toolCallEvents || [], false);
                             return { text: newText, workflow: parsedWorkflow };
@@ -379,14 +395,14 @@ export const useChat = (
                             call: toolEvent.call,
                             startTime: Date.now()
                         }));
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                        updateActiveResponseOnMessage(chatId, messageId, (r) => {
                             const updatedEvents = [...(r.toolCallEvents || []), ...newEvents];
                             const parsedWorkflow = parseAgenticWorkflow(r.text || '', updatedEvents, false);
                             return { toolCallEvents: updatedEvents, workflow: parsedWorkflow };
                         });
                     },
                     onToolUpdate: (payload) => {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                        updateActiveResponseOnMessage(chatId, messageId, (r) => {
                             const updatedEvents = r.toolCallEvents?.map(tc => {
                                 if (tc.id === payload.id) {
                                     const session = (tc.browserSession || { url: payload.url || '', logs: [], status: 'running' }) as BrowserSession;
@@ -404,7 +420,7 @@ export const useChat = (
                         });
                     },
                     onToolCallEnd: (payload) => {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                        updateActiveResponseOnMessage(chatId, messageId, (r) => {
                             const updatedEvents = r.toolCallEvents?.map(tc => tc.id === payload.id ? { ...tc, result: payload.result, endTime: Date.now() } : tc);
                             const parsedWorkflow = parseAgenticWorkflow(r.text || '', updatedEvents || [], false);
                             return { toolCallEvents: updatedEvents, workflow: parsedWorkflow };
@@ -412,14 +428,14 @@ export const useChat = (
                     },
                     onPlanReady: (plan) => {
                         const payload = plan as any; 
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, () => ({ plan: payload }));
-                        chatHistoryHook.updateMessage(chatId, messageId, { executionState: 'pending_approval' });
+                        updateActiveResponseOnMessage(chatId, messageId, () => ({ plan: payload }));
+                        updateMessage(chatId, messageId, { executionState: 'pending_approval' });
                     },
                     onFrontendToolRequest: (callId, toolName, toolArgs) => {
                         handleFrontendToolExecution(callId, toolName, toolArgs);
                     },
                     onComplete: (payload) => {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                        updateActiveResponseOnMessage(chatId, messageId, (r) => {
                             const finalWorkflow = parseAgenticWorkflow(payload.finalText, r.toolCallEvents || [], true);
                             return { 
                                 text: payload.finalText, 
@@ -430,7 +446,7 @@ export const useChat = (
                         });
                     },
                     onError: (error) => {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, () => ({ error, endTime: Date.now() }));
+                        updateActiveResponseOnMessage(chatId, messageId, () => ({ error, endTime: Date.now() }));
                     },
                     onCancel: () => {
                         if (abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
@@ -446,12 +462,12 @@ export const useChat = (
                 // Handled globally
             } else if ((error as Error).name !== 'AbortError') {
                 console.error('[FRONTEND] Backend stream failed.', { error });
-                chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, () => ({ error: parseApiError(error), endTime: Date.now() }));
+                updateActiveResponseOnMessage(chatId, messageId, () => ({ error: parseApiError(error), endTime: Date.now() }));
             }
         } finally {
             if (!abortControllerRef.current?.signal.aborted) {
-                chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
-                chatHistoryHook.completeChatLoading(chatId);
+                updateMessage(chatId, messageId, { isThinking: false });
+                completeChatLoading(chatId);
                 abortControllerRef.current = null;
                 requestIdRef.current = null;
                 
@@ -471,8 +487,9 @@ export const useChat = (
 
                     const suggestions = await generateFollowUpSuggestions(finalChatState.messages);
                      if (suggestions.length > 0) {
-                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, () => ({ suggestedActions: suggestions }));
+                        updateActiveResponseOnMessage(chatId, messageId, () => ({ suggestedActions: suggestions }));
                         
+                        // Force a persist of the suggestions
                         const currentChatSnapshot = chatHistoryRef.current.find(c => c.id === chatId);
                         if (currentChatSnapshot && currentChatSnapshot.messages) {
                             const updatedMessages = currentChatSnapshot.messages.map(m => {
@@ -504,8 +521,8 @@ export const useChat = (
                 }, 200);
 
             } else {
-                chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
-                chatHistoryHook.completeChatLoading(chatId);
+                updateMessage(chatId, messageId, { isThinking: false });
+                completeChatLoading(chatId);
                 abortControllerRef.current = null;
                 requestIdRef.current = null;
             }
@@ -537,7 +554,7 @@ export const useChat = (
                 videoModel: settings.videoModel,
             };
 
-            chatCreationPromise = chatHistoryHook.startNewChat(initialModel, settingsToUse, optimisticId);
+            chatCreationPromise = startNewChatHistory(initialModel, settingsToUse, optimisticId);
             
             currentChat = {
                 id: optimisticId,
@@ -552,11 +569,11 @@ export const useChat = (
         const attachmentsData = files?.length ? await Promise.all(files.map(async f => ({ name: f.name, mimeType: f.type, data: await fileToBase64(f) }))) : undefined;
     
         const userMessageObj: Message = { id: generateId(), role: 'user', text: userMessage, isHidden: options.isHidden, attachments: attachmentsData, activeResponseIndex: 0 };
-        chatHistoryHook.addMessagesToChat(activeChatId, [userMessageObj]);
+        addMessagesToChat(activeChatId, [userMessageObj]);
     
         const modelPlaceholder: Message = { id: generateId(), role: 'model', text: '', responses: [{ text: '', toolCallEvents: [], startTime: Date.now() }], activeResponseIndex: 0, isThinking: true };
-        chatHistoryHook.addMessagesToChat(activeChatId, [modelPlaceholder]);
-        chatHistoryHook.setChatLoadingState(activeChatId, true);
+        addMessagesToChat(activeChatId, [modelPlaceholder]);
+        setChatLoadingState(activeChatId, true);
     
         const chatForSettings = currentChat || { model: initialModel, ...settings };
 
@@ -617,7 +634,7 @@ export const useChat = (
         const truncatedList = [...updatedMessages.slice(0, messageIndex), targetMessage];
 
         try {
-            await chatHistoryHook.updateChatProperty(chatId, { messages: truncatedList });
+            await updateChatProperty(chatId, { messages: truncatedList });
             
             const modelPlaceholder: Message = { 
                 id: generateId(), 
@@ -628,8 +645,8 @@ export const useChat = (
                 isThinking: true 
             };
             
-            chatHistoryHook.addMessagesToChat(chatId, [modelPlaceholder]);
-            chatHistoryHook.setChatLoadingState(chatId, true);
+            addMessagesToChat(chatId, [modelPlaceholder]);
+            setChatLoadingState(chatId, true);
 
             await startBackendChat(
                 'regenerate', 
@@ -644,7 +661,7 @@ export const useChat = (
             console.error("Failed to edit message:", e);
             if (onShowToast) onShowToast("Failed to edit message branch", 'error');
         }
-    }, [isLoading, chatHistoryHook, startBackendChat, cancelGeneration, onShowToast, settings, isAgentMode]);
+    }, [isLoading, updateChatProperty, addMessagesToChat, setChatLoadingState, startBackendChat, cancelGeneration, onShowToast, settings, isAgentMode]);
 
     const navigateBranch = useCallback(async (messageId: string, direction: 'next' | 'prev') => {
         if (isLoading) return;
@@ -683,13 +700,13 @@ export const useChat = (
         const newMessagesList = [...updatedMessages.slice(0, messageIndex), targetMessage, ...restoredFuture];
 
         try {
-            await chatHistoryHook.updateChatProperty(chatId, { messages: newMessagesList });
+            await updateChatProperty(chatId, { messages: newMessagesList });
         } catch (e) {
             console.error("Failed to switch branch:", e);
             if (onShowToast) onShowToast("Failed to switch branch", 'error');
         }
 
-    }, [isLoading, chatHistoryHook, onShowToast]);
+    }, [isLoading, updateChatProperty, onShowToast]);
 
     const regenerateResponse = useCallback(async (aiMessageId: string) => {
         if (isLoading) cancelGeneration();
@@ -723,9 +740,9 @@ export const useChat = (
 
         const truncatedList = [...updatedMessages.slice(0, messageIndex), targetMessage];
 
-        await chatHistoryHook.updateChatProperty(currentChatId, { messages: truncatedList });
+        await updateChatProperty(currentChatId, { messages: truncatedList });
         
-        chatHistoryHook.setChatLoadingState(currentChatId, true);
+        setChatLoadingState(currentChatId, true);
 
         await startBackendChat(
             'regenerate',
@@ -736,7 +753,7 @@ export const useChat = (
             { ...settings, isAgentMode: isAgentMode }
         );
 
-    }, [isLoading, currentChatId, chatHistoryHook, cancelGeneration, startBackendChat, settings, isAgentMode]);
+    }, [isLoading, currentChatId, updateChatProperty, setChatLoadingState, cancelGeneration, startBackendChat, settings, isAgentMode]);
 
     const setResponseIndex = useCallback(async (messageId: string, index: number) => {
         if (isLoading) return; 
@@ -749,8 +766,7 @@ export const useChat = (
         const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
         if (messageIndex === -1) return;
 
-        const updatedMessages = JSON.parse(JSON.stringify(currentChat.messages)) as Message[];
-        const targetMessage = updatedMessages[messageIndex];
+        const targetMessage = currentChat.messages[messageIndex];
 
         if (!targetMessage.responses || targetMessage.responses.length < 2) return;
 
@@ -769,12 +785,15 @@ export const useChat = (
         const newMessagesList = [...updatedMessages.slice(0, messageIndex), targetMessage, ...restoredFuture];
 
         try {
-            await chatHistoryHook.updateChatProperty(chatId, { messages: newMessagesList });
+            await updateChatProperty(chatId, { messages: newMessagesList });
         } catch (e) {
             console.error("Failed to switch response branch:", e);
             if (onShowToast) onShowToast("Failed to switch response branch", 'error');
         }
-    }, [isLoading, chatHistoryHook, onShowToast]);
+    }, [isLoading, updateChatProperty, onShowToast]);
+
+    const updateChatModel = useCallback((chatId: string, model: string) => updateChatProperty(chatId, { model }), [updateChatProperty]);
+    const updateChatSettings = useCallback((chatId: string, settings: Partial<Pick<ChatSession, 'temperature' | 'maxOutputTokens' | 'imageModel' | 'videoModel'>>) => updateChatProperty(chatId, settings), [updateChatProperty]);
 
     const sendMessageForTest = (userMessage: string, options?: { isThinkingModeEnabled?: boolean }): Promise<Message> => {
         return new Promise((resolve) => {
@@ -784,7 +803,9 @@ export const useChat = (
     };
   
   return { 
-      ...chatHistoryHook, 
+      chatHistory, currentChatId, isHistoryLoading,
+      // expose all needed methods from history hook
+      updateChatTitle, updateChatProperty, loadChat: loadChatHistory, deleteChat: deleteChatHistory, clearAllChats: clearAllChatsHistory, importChat, startNewChat: startNewChatHistory,
       messages, 
       sendMessage, 
       isLoading, 
@@ -795,6 +816,8 @@ export const useChat = (
       sendMessageForTest, 
       editMessage, 
       navigateBranch, 
-      setResponseIndex 
+      setResponseIndex,
+      updateChatModel, 
+      updateChatSettings
   };
 };

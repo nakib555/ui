@@ -130,7 +130,11 @@ class ArtifactErrorBoundary extends React.Component<ArtifactErrorBoundaryProps, 
     public state: ArtifactErrorBoundaryState = { hasError: false };
 
     static getDerivedStateFromError() { return { hasError: true }; }
-    componentDidCatch(error: any) { console.error("Artifact Preview Error:", error); }
+    
+    componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+        console.error("Artifact Preview Error:", error, errorInfo);
+    }
+
     render() {
         if (this.state.hasError) {
             return (

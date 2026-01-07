@@ -11,11 +11,12 @@ import type { MessageFormHandle } from './MessageForm/index';
 import { AnimatePresence, motion as motionTyped } from 'framer-motion';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { useViewport } from '../../hooks/useViewport';
+import { ChatSkeleton } from '../UI/ChatSkeleton';
 
 const motion = motionTyped as any;
 
 // Safe lazy loads
-const ChatSkeleton = React.lazy(() => import('../UI/ChatSkeleton').then(m => ({ default: m.ChatSkeleton })));
+// We keep WelcomeScreen lazy as it's not time-critical for interaction feedback
 const WelcomeScreen = React.lazy(() => import('./WelcomeScreen/index').then(m => ({ default: m.WelcomeScreen })));
 
 export type MessageListHandle = {
@@ -138,10 +139,10 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(({
     <div className="flex-1 min-h-0 relative w-full">
       {visibleMessages.length === 0 ? (
         isLoading ? (
-            // Show Skeleton when loading a chat (messages are empty but isLoading is true)
-            <Suspense fallback={<div className="h-full w-full bg-transparent" />}>
+            // Show Skeleton immediately when loading a chat
+            <div className="h-full w-full bg-transparent">
                 <ChatSkeleton />
-            </Suspense>
+            </div>
         ) : (
             <div className="h-full overflow-y-auto custom-scrollbar">
                  <Suspense fallback={<div className="h-full flex items-center justify-center"><div className="animate-spin w-6 h-6 border-2 border-indigo-500 rounded-full border-t-transparent"></div></div>}>

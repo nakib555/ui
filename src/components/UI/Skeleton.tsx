@@ -20,9 +20,17 @@ export const Skeleton: React.FC<SkeletonProps> = ({ className = '' }) => {
       `} 
       aria-hidden="true"
     >
+      {/* 
+        Animation Fix: Separating the animation (translateX) from the shape (skew)
+        into parent/child divs prevents the keyframe transform from overriding the skew transform.
+        will-change-transform forces GPU promotion on mobile.
+      */}
       <div 
-        className="absolute inset-0 -translate-x-full animate-shimmer-wave bg-gradient-to-r from-transparent via-white/90 dark:via-indigo-400/20 to-transparent skew-x-12"
-      />
+        className="absolute inset-0 -translate-x-full animate-shimmer-wave z-10"
+        style={{ willChange: 'transform' }}
+      >
+        <div className="h-full w-full bg-gradient-to-r from-transparent via-white/60 dark:via-indigo-400/20 to-transparent skew-x-12" />
+      </div>
     </div>
   );
 };

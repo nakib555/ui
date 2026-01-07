@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -73,9 +74,16 @@ export const useChatHistory = () => {
     if (!currentChatId || isHistoryLoading) return;
 
     const chat = chatHistory.find(c => c.id === currentChatId);
-    if (!chat || chat.isLoading || chat.messages) return;
-
-    setChatHistory(prev => prev.map(c => c.id === currentChatId ? { ...c, isLoading: true } : c));
+    if (!chat) return;
+    
+    // If we already have messages, we don't need to load anything.
+    if (chat.messages) return;
+    
+    // If it's already loading (set by loadChat optimistically), we proceed to fetch.
+    // If it's NOT loading yet (edge case), set it now.
+    if (!chat.isLoading) {
+        setChatHistory(prev => prev.map(c => c.id === currentChatId ? { ...c, isLoading: true } : c));
+    }
 
     const loadFullChat = async () => {
         try {
@@ -125,7 +133,18 @@ export const useChatHistory = () => {
     }
   }, []);
 
-  const loadChat = useCallback((chatId: string) => { setCurrentChatId(chatId); }, []);
+  const loadChat = useCallback((chatId: string) => { 
+      // Check if we need to load this chat
+      const chat = chatHistoryRef.current.find(c => c.id === chatId);
+      
+      // Optimistically set isLoading to true if we don't have messages yet.
+      // This ensures the UI shows the Skeleton immediately instead of a blank/welcome screen.
+      if (chat && !chat.messages) {
+          setChatHistory(prev => prev.map(c => c.id === chatId ? { ...c, isLoading: true } : c));
+      }
+      
+      setCurrentChatId(chatId); 
+  }, []);
   
   const deleteChat = useCallback(async (chatId: string) => {
     const previousHistory = chatHistoryRef.current;

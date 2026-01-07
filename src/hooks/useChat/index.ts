@@ -54,9 +54,21 @@ export const useChat = (
         return chatHistory.find(c => c.id === currentChatId)?.messages || [];
     }, [chatHistory, currentChatId]);
 
+    // Computed isLoading state that strictly checks for data availability.
+    // If we have a currentChatId, but the chat object in history doesn't have messages yet,
+    // it effectively implies we are in a loading state (fetching details).
+    // This overrides any stale 'isLoading: false' state that might exist on the history summary item.
     const isLoading = useMemo(() => {
         if (!currentChatId) return false;
-        return chatHistory.find(c => c.id === currentChatId)?.isLoading ?? false;
+        const chat = chatHistory.find(c => c.id === currentChatId);
+        
+        // If chat exists in list but messages are undefined, it's loading details.
+        // Exception: "New Chat" created client-side might start with empty messages array, which is fine.
+        if (chat && chat.messages === undefined && chat.title !== "New Chat") {
+            return true;
+        }
+        
+        return chat?.isLoading ?? false;
     }, [chatHistory, currentChatId]);
 
     // Effect to resolve test promise when loading completes
@@ -505,31 +517,31 @@ export const useChat = (
         targetMessage.activeVersionIndex = newVersionIndex;
         targetMessage.text = newText;
 
-        // 5. Construct new message list: [..., PreviousMsgs, UpdatedUserMsg]
-        // We truncate everything after this message because we are starting a new generation
-        const truncatedList = [...updatedMessages.slice(0, messageIndex), targetMessage];
+        // 5. Create Model Placeholder IMMEDIATELY
+        const modelPlaceholder: Message = { 
+            id: generateId(), 
+            role: 'model', 
+            text: '', 
+            responses: [{ text: '', toolCallEvents: [], startTime: Date.now() }], 
+            activeResponseIndex: 0, 
+            isThinking: true 
+        };
 
-        // 6. Sync to Backend & Update Local State ATOMICALLY
+        // 6. Construct new message list: [..., PreviousMsgs, UpdatedUserMsg, ModelPlaceholder]
+        // We truncate everything after the edited message and append the new placeholder
+        const truncatedList = [...updatedMessages.slice(0, messageIndex), targetMessage, modelPlaceholder];
+
+        // 7. Update State & Backend atomically
+        // This triggers optimistic React update immediately showing both the edited msg AND the thinking bubble.
+        chatHistoryHook.setChatLoadingState(chatId, true);
+        
         try {
-            // Update local and backend in one go with the fully constructed list
+            // Update local state and trigger persist
             await chatHistoryHook.updateChatProperty(chatId, { messages: truncatedList });
             
-            // 7. Add model placeholder
-            const modelPlaceholder: Message = { 
-                id: generateId(), 
-                role: 'model', 
-                text: '', 
-                responses: [{ text: '', toolCallEvents: [], startTime: Date.now() }], 
-                activeResponseIndex: 0, 
-                isThinking: true 
-            };
-            
-            chatHistoryHook.addMessagesToChat(chatId, [modelPlaceholder]);
-            chatHistoryHook.setChatLoadingState(chatId, true);
-
-            // 8. Start Stream
+            // 8. Start Stream (regenerate from the placeholder ID)
             await startBackendChat(
-                'regenerate', // Force regenerate to ensure context is correctly read from the updated history in DB
+                'regenerate', 
                 chatId,
                 modelPlaceholder.id,
                 null, // Passing null since user message is already in history (updated above)
@@ -540,6 +552,7 @@ export const useChat = (
         } catch (e) {
             console.error("Failed to edit message:", e);
             if (onShowToast) onShowToast("Failed to edit message branch", 'error');
+            chatHistoryHook.setChatLoadingState(chatId, false);
         }
     }, [isLoading, chatHistoryHook, startBackendChat, cancelGeneration, onShowToast, settings, isAgentMode]);
 

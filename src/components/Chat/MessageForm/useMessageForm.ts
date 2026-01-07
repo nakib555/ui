@@ -1,4 +1,3 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -20,12 +19,13 @@ export const useMessageForm = (
   ref: React.ForwardedRef<MessageFormHandle>,
   messages: Message[],
   isAgentMode: boolean,
-  hasApiKey: boolean
+  hasApiKey: boolean,
+  onFocusChange?: (focused: boolean) => void
 ) => {
   const [inputValue, setInputValue] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [isUploadMenuOpen, setIsUploadMenuOpen] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
+  const [isFocused, setIsFocusedState] = useState(false);
   const [previewFile, setPreviewFile] = useState<ProcessedFile | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -35,6 +35,11 @@ export const useMessageForm = (
   const fileHandling = useFileHandling(ref);
   const enhancements = useInputEnhancements(inputValue, setInputValue, fileHandling.processedFiles.length > 0, onSubmit);
   
+  const setIsFocused = (focused: boolean) => {
+      setIsFocusedState(focused);
+      if (onFocusChange) onFocusChange(focused);
+  };
+
   const lastMessageText = useMemo(() => {
     const lastVisibleMessage = messages.filter(m => !m.isHidden).pop();
     if (!lastVisibleMessage) return '';

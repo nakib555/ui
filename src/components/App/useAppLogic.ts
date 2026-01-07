@@ -50,6 +50,7 @@ export const useAppLogic = () => {
   const [isTestMode, setIsTestMode] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [versionMismatch, setVersionMismatch] = useState(false);
+  const [isMainInputFocused, setIsMainInputFocused] = useState(false);
   const [confirmation, setConfirmation] = useState<{
     prompt: string;
     onConfirm: () => void;
@@ -587,6 +588,9 @@ export const useAppLogic = () => {
     // Edit Message and Branch Navigation
     editMessage, navigateBranch,
     // Explicitly expose setResponseIndex as the main handler for response switching
-    setActiveResponseIndex: setResponseIndex
+    setActiveResponseIndex: setResponseIndex,
+    // Keyboard Focus State
+    isMainInputFocused,
+    setIsMainInputFocused,
   };
 };

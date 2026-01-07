@@ -1,4 +1,3 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -46,7 +45,7 @@ type AiMessageProps = {
     onShowSources: (sources: Source[]) => void;
     approveExecution: (editedPlan: string) => void;
     denyExecution: () => void;
-    messageFormRef: React.RefObject<MessageFormHandle>;
+    messageFormRef: React.RefObject<MessageFormHandle | null>;
     onRegenerate: (messageId: string) => void;
     onSetActiveResponseIndex: (messageId: string, index: number) => void;
     isAgentMode: boolean;

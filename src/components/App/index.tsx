@@ -1,4 +1,3 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -54,7 +53,7 @@ export const App = () => {
         ref={logic.appContainerRef} 
         className={`flex h-full bg-page text-content-primary overflow-hidden transition-[height] duration-200 ease-out ${logic.isAnyResizing ? 'pointer-events-none' : ''}`}
         style={{ 
-            height: !logic.isDesktop && logic.visualViewportHeight ? `${logic.visualViewportHeight}px` : '100dvh',
+            height: !logic.isDesktop && logic.visualViewportHeight && logic.isMainInputFocused ? `${logic.visualViewportHeight}px` : '100dvh',
             // On mobile, we use visualViewportHeight to handle keyboard, so we reset safe-areas slightly differently
             paddingTop: logic.isDesktop ? '0' : 'env(safe-area-inset-top)', 
             paddingBottom: logic.isDesktop ? '0' : 'env(safe-area-inset-bottom)',
@@ -142,6 +141,7 @@ export const App = () => {
                 hasApiKey={!!logic.apiKey}
                 onEditMessage={logic.editMessage}
                 onNavigateBranch={logic.navigateBranch}
+                onInputFocusChange={logic.setIsMainInputFocused}
              />
           </div>
         </main>

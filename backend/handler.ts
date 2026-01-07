@@ -122,8 +122,13 @@ class ChatPersistenceManager {
             const msgIndex = chat.messages.findIndex((m: any) => m.id === this.messageId);
             if (msgIndex !== -1) {
                 const message = chat.messages[msgIndex];
-                if (message.responses && message.responses[message.activeResponseIndex]) {
-                    const activeResponse = message.responses[message.activeResponseIndex];
+                // Ensure robustness for branching: access active response index
+                const safeIndex = (message.activeResponseIndex !== undefined && message.responses && message.responses[message.activeResponseIndex])
+                    ? message.activeResponseIndex
+                    : (message.responses ? message.responses.length - 1 : 0);
+
+                if (message.responses && message.responses[safeIndex]) {
+                    const activeResponse = message.responses[safeIndex];
                     if (this.buffer) {
                         activeResponse.text = (activeResponse.text || '') + this.buffer.text;
                         this.buffer = null;
@@ -151,8 +156,12 @@ class ChatPersistenceManager {
             const msgIndex = chat.messages.findIndex((m: any) => m.id === this.messageId);
             if (msgIndex !== -1) {
                 const message = chat.messages[msgIndex];
-                if (message.responses && message.responses[message.activeResponseIndex]) {
-                    const activeResponse = message.responses[message.activeResponseIndex];
+                const safeIndex = (message.activeResponseIndex !== undefined && message.responses && message.responses[message.activeResponseIndex])
+                    ? message.activeResponseIndex
+                    : (message.responses ? message.responses.length - 1 : 0);
+
+                if (message.responses && message.responses[safeIndex]) {
+                    const activeResponse = message.responses[safeIndex];
                     activeResponse.text = (activeResponse.text || '') + textToAppend;
                     await historyControl.updateChat(this.chatId, { messages: chat.messages });
                 }
@@ -167,8 +176,12 @@ class ChatPersistenceManager {
             const msgIndex = chat.messages.findIndex((m: any) => m.id === this.messageId);
             if (msgIndex !== -1) {
                 const message = chat.messages[msgIndex];
-                if (message.responses && message.responses[message.activeResponseIndex]) {
-                    const activeResponse = message.responses[message.activeResponseIndex];
+                const safeIndex = (message.activeResponseIndex !== undefined && message.responses && message.responses[message.activeResponseIndex])
+                    ? message.activeResponseIndex
+                    : (message.responses ? message.responses.length - 1 : 0);
+
+                if (message.responses && message.responses[safeIndex]) {
+                    const activeResponse = message.responses[safeIndex];
                     if (this.buffer) {
                         activeResponse.text = (activeResponse.text || '') + this.buffer.text;
                         this.buffer = null;
@@ -333,10 +346,15 @@ ${coreInstruction}
                 });
 
                 if (activeProvider === 'openrouter') {
-                    const openRouterMessages = historyForAI.map((msg: any) => ({
+                    // Flatten using the same robust transformer, mapping roles for OpenRouter
+                    const flatHistory = transformHistoryToGeminiFormat(historyForAI);
+                    
+                    const openRouterMessages = flatHistory.map((msg: any) => ({
                         role: msg.role === 'model' ? 'assistant' : 'user',
-                        content: msg.text || ''
+                        // Combine parts into single text for OpenRouter
+                        content: (msg.parts || []).map((p: any) => p.text || '').join('\n')
                     }));
+                    
                     // Inject the fully constructed system instruction
                     openRouterMessages.unshift({ role: 'system', content: finalSystemInstruction });
 

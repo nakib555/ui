@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -47,6 +48,9 @@ export const runAgenticLoop = async (params: RunAgenticLoopParams): Promise<void
     const MAX_TURNS = 15; // Safety limit
     let finalAnswerAccumulator = "";
     let finalGroundingMetadata: any = undefined;
+    
+    // Flag to ensure we only trigger plan approval once per session if needed
+    let planApprovalHandled = false;
 
     try {
         while (turns < MAX_TURNS) {
@@ -57,6 +61,7 @@ export const runAgenticLoop = async (params: RunAgenticLoopParams): Promise<void
             let fullTextResponse = '';
             let toolCalls: FunctionCall[] = [];
             let groundingMetadata: any = undefined;
+            let planTriggerDetected = false;
 
             // 1. Generate Content (Streaming)
             console.log('[AGENT_LOOP] Invoking Gemini Stream...');
@@ -79,12 +84,18 @@ export const runAgenticLoop = async (params: RunAgenticLoopParams): Promise<void
                 }
 
                 // Robust text extraction
-                // getText in geminiUtils is now safe, but we double-check handling here implicitly
                 const chunkText = getText(chunk);
                 if (chunkText) {
                     fullTextResponse += chunkText;
                     finalAnswerAccumulator = fullTextResponse; // Track for final output
                     callbacks.onTextChunk(chunkText);
+
+                    // --- PLAN APPROVAL DETECTION ---
+                    if (!planApprovalHandled && settings.isAgentMode && fullTextResponse.includes('[USER_APPROVAL_REQUIRED]')) {
+                        planTriggerDetected = true;
+                        planApprovalHandled = true;
+                        // Don't break immediately, let the chunk finish processing, but mark for suspension
+                    }
                 }
             }
 
@@ -100,7 +111,32 @@ export const runAgenticLoop = async (params: RunAgenticLoopParams): Promise<void
             
             history.push({ role: 'model', parts: newContentParts });
 
-            // 3. Check for Termination (No tools, just text)
+            // --- HANDLING SUSPENSION FOR PLAN APPROVAL ---
+            if (planTriggerDetected) {
+                console.log('[AGENT_LOOP] Plan detected. Requesting user approval...');
+                // The stream has finished for this turn. We pause here.
+                const approvedPlan = await callbacks.onPlanReady(fullTextResponse);
+                
+                if (approvedPlan === false) {
+                    // User Denied
+                    throw new Error("Plan execution denied by user.");
+                } else if (typeof approvedPlan === 'string') {
+                    // User Approved (possibly with edits)
+                    console.log('[AGENT_LOOP] Plan approved. Resuming execution.');
+                    
+                    // Inject the user's confirmation into the history to prompt the next step
+                    // We treat the edited plan as the user saying "Execute this plan"
+                    const approvalMessage: Part[] = [{ 
+                        text: `The plan is approved. Proceed with execution immediately. Follow this roadmap:\n\n${approvedPlan}` 
+                    }];
+                    history.push({ role: 'user', parts: approvalMessage });
+                    
+                    // Continue to next loop iteration immediately to execute Phase 2
+                    continue;
+                }
+            }
+
+            // 3. Check for Termination (No tools, just text, and not a plan trigger)
             if (toolCalls.length === 0) {
                 console.log('[AGENT_LOOP] No tool calls detected. Ending loop.');
                 break;

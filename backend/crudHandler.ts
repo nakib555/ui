@@ -112,15 +112,22 @@ export const deleteAllHistory = async (req: any, res: any) => {
 export const importChat = async (req: any, res: any) => {
     try {
         const importedChat = req.body as ChatSession;
-        if (!importedChat || typeof importedChat.title !== 'string' || !Array.isArray(importedChat.messages)) {
-            return res.status(400).json({ error: "Invalid chat file format." });
+        
+        // Loosen validation: Title is optional (can default), messages required
+        if (!importedChat || !Array.isArray(importedChat.messages)) {
+            return res.status(400).json({ error: "Invalid chat file format. 'messages' array is required." });
         }
+        
         const newChat: ChatSession = {
             ...importedChat,
             id: generateId(),
-            createdAt: Date.now(),
+            // Preserve title or default
+            title: importedChat.title || "Imported Chat",
+            // Preserve createdAt or default
+            createdAt: importedChat.createdAt || Date.now(),
             isLoading: false,
         };
+        
         await historyControl.createChat(newChat);
         res.status(201).json(newChat);
     } catch (error) {

@@ -18,6 +18,10 @@ export interface StreamCallbacks {
     onCancel?: () => void;
 }
 
+/**
+ * Processes a streaming response from the backend API.
+ * Uses a time-based and size-based buffer to batch rapid text chunks for optimal UI performance.
+ */
 export const processBackendStream = async (response: Response, callbacks: StreamCallbacks, signal?: AbortSignal) => {
     if (!response.body) {
         throw new Error("Response body is missing");
@@ -27,11 +31,11 @@ export const processBackendStream = async (response: Response, callbacks: Stream
     const decoder = new TextDecoder();
     let buffer = '';
 
-    // Optimization: Buffered State Updates
-    // A flush interval of 65ms (~15fps) is the sweet spot. 
-    // It reduces React Reconciliation overhead on the frontend significantly for 
-    // massive text/code blocks while still feeling "real-time" to the human eye.
-    const FLUSH_INTERVAL_MS = 65; 
+    // --- Performance Optimization: Buffered State Updates ---
+    // A flush interval of 50ms provides a good balance between "real-time" feel and React render efficiency.
+    // We also implement a size-based trigger to prevent holding too much data if the stream is very fast.
+    const FLUSH_INTERVAL_MS = 50; 
+    const MAX_BUFFER_SIZE = 250; // Characters. Flush immediately if buffer exceeds this.
     const WATCHDOG_TIMEOUT_MS = 45000;
 
     let pendingText: string | null = null;
@@ -48,9 +52,10 @@ export const processBackendStream = async (response: Response, callbacks: Stream
         }
     };
 
+    // Helper to read with a timeout to prevent infinite hanging
     const readWithTimeout = async () => {
         const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error("Stream timeout")), WATCHDOG_TIMEOUT_MS);
+            setTimeout(() => reject(new Error("Stream timeout: No data received from backend")), WATCHDOG_TIMEOUT_MS);
         });
         return Promise.race([reader.read(), timeoutPromise]);
     };
@@ -68,6 +73,7 @@ export const processBackendStream = async (response: Response, callbacks: Stream
             
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
+            // Keep the last line in the buffer if it's incomplete
             buffer = lines.pop() || '';
 
             for (const line of lines) {
@@ -75,12 +81,16 @@ export const processBackendStream = async (response: Response, callbacks: Stream
                 try {
                     const event = JSON.parse(line);
                     
+                    // Prioritize text chunks for the buffering optimization
                     if (event.type === 'text-chunk') {
+                        // ACCUMULATE deltas instead of replacing
                         pendingText = (pendingText || '') + event.payload; 
                         
-                        // Check for artifact tags in the pending text to trigger immediate flush
-                        // This ensures the renderer sees the opening tag ASAP
-                        if (pendingText && (pendingText.includes('[ARTIFACT') || pendingText.includes('[/ARTIFACT'))) {
+                        const isBufferFull = pendingText!.length >= MAX_BUFFER_SIZE;
+                        const hasArtifactTag = pendingText!.includes('[ARTIFACT') || pendingText!.includes('[/ARTIFACT') || pendingText!.includes('[STEP]');
+
+                        // Flush if buffer is full or we hit a special tag that needs immediate rendering logic
+                        if (isBufferFull || hasArtifactTag) {
                             flushTextUpdates();
                         } else if (flushTimeoutId === null) {
                             flushTimeoutId = setTimeout(flushTextUpdates, FLUSH_INTERVAL_MS);
@@ -88,30 +98,63 @@ export const processBackendStream = async (response: Response, callbacks: Stream
                         continue;
                     }
 
+                    // For all other events (tools, errors, complete), flush pending text IMMEDIATELY
+                    // to ensure correct ordering of events (e.g. text before tool call).
                     flushTextUpdates();
 
                     switch (event.type) {
-                        case 'start': callbacks.onStart?.(event.payload?.requestId); break;
-                        case 'ping': break;
-                        case 'tool-call-start': callbacks.onToolCallStart(event.payload); break;
-                        case 'tool-update': callbacks.onToolUpdate(event.payload); break;
-                        case 'tool-call-end': callbacks.onToolCallEnd(event.payload); break;
-                        case 'plan-ready': callbacks.onPlanReady(event.payload); break;
-                        case 'frontend-tool-request': callbacks.onFrontendToolRequest(event.payload.callId, event.payload.toolName, event.payload.toolArgs); break;
-                        case 'complete': callbacks.onComplete(event.payload); break;
-                        case 'error': callbacks.onError(event.payload); break;
-                        case 'cancel': callbacks.onCancel?.(); break;
+                        case 'start':
+                            callbacks.onStart?.(event.payload?.requestId);
+                            break;
+                        case 'ping':
+                            // Keep-alive, ignore
+                            break;
+                        case 'workflow-update':
+                            // Deprecated from backend, but kept for compatibility if needed
+                            if (callbacks.onWorkflowUpdate) callbacks.onWorkflowUpdate(event.payload);
+                            break;
+                        case 'tool-call-start':
+                            callbacks.onToolCallStart(event.payload);
+                            break;
+                        case 'tool-update':
+                            callbacks.onToolUpdate(event.payload);
+                            break;
+                        case 'tool-call-end':
+                            callbacks.onToolCallEnd(event.payload);
+                            break;
+                        case 'plan-ready':
+                            callbacks.onPlanReady(event.payload);
+                            break;
+                        case 'frontend-tool-request':
+                            callbacks.onFrontendToolRequest(event.payload.callId, event.payload.toolName, event.payload.toolArgs);
+                            break;
+                        case 'complete':
+                            callbacks.onComplete(event.payload);
+                            break;
+                        case 'error':
+                            callbacks.onError(event.payload);
+                            break;
+                        case 'cancel':
+                            callbacks.onCancel?.();
+                            break;
+                        default:
+                            console.warn(`[StreamProcessor] Unknown event type: ${event.type}`);
                     }
                 } catch(e) {
-                    console.error("[StreamProcessor] Parse error:", line);
+                    console.error("[StreamProcessor] Failed to parse stream event:", line, e);
                 }
             }
         }
     } catch (e: any) {
+        // If it's a timeout or network error, report it
         if (e.message && (e.message.includes("timeout") || e.message.includes("network"))) {
-            callbacks.onError({ message: "Stream connection lost." });
+            callbacks.onError({ message: "Stream connection lost or timed out." });
+        } else if (e.name !== 'AbortError') {
+             // Only report actual errors, not user cancellations
+             callbacks.onError({ message: e.message || "Stream processing failed" });
         }
     } finally {
+        // Cleanup any pending flush on stream end/error/close
         flushTextUpdates();
         reader.releaseLock();
     }

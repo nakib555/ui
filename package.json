@@ -1,3 +1,4 @@
+
 {
   "name": "agentic-ai-chat",
   "version": "1.0.0",
@@ -16,11 +17,12 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "typecheck": "tsc",
-    "build": "npm run typecheck && node build.js",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "tsc && vite build && npx tailwindcss -i ./src/styles/main.css -o ./dist/styles/main.css --minify",
+    "build:server": "esbuild backend/server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:playwright",
     "start": "node dist/server.cjs",
     "dev": "node dev.js",
-    "deploy": "npm run build && wrangler pages deploy dist"
+    "deploy": "npm run build:client && wrangler pages deploy dist"
   },
   "dependencies": {
     "@codesandbox/sandpack-react": "^2.19.8",

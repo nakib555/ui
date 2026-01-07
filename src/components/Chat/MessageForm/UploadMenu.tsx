@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -9,7 +10,7 @@ import { motion as motionTyped } from 'framer-motion';
 const motion = motionTyped as any;
 
 type UploadMenuProps = {
-  menuRef: React.RefObject<HTMLDivElement | null>;
+  menuRef: React.RefObject<HTMLDivElement>;
   onFileClick: () => void;
   onFolderClick: () => void;
 };

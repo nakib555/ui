@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -32,13 +33,12 @@ type MessageFormProps = {
   setTtsVoice: (voice: string) => void;
   currentChatId: string | null;
   activeModel: string;
-  onFocusChange?: (focused: boolean) => void;
 };
 
 export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((props, ref) => {
   const { 
     onSubmit, isLoading, isAppLoading, backendStatus, onCancel, 
-    isAgentMode, setIsAgentMode, hasApiKey, onFocusChange
+    isAgentMode, setIsAgentMode, hasApiKey 
   } = props;
 
   const [isDragging, setIsDragging] = useState(false);
@@ -49,8 +49,7 @@ export const MessageForm = forwardRef<MessageFormHandle, MessageFormProps>((prop
     ref,
     props.messages,
     isAgentMode,
-    hasApiKey,
-    onFocusChange
+    hasApiKey
   );
 
   const isGeneratingResponse = isLoading;

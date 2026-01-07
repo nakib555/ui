@@ -1,4 +1,3 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -6,6 +5,7 @@
 
 import { Content, Part } from "@google/genai";
 import { Message } from '../../src/types';
+import { parseMessageText } from '../../src/utils/messageParser';
 
 // Maximum number of previous exchange turns to send to the model.
 // 20 turns = ~40 messages (User + AI).
@@ -54,17 +54,12 @@ export const transformHistoryToGeminiFormat = (messages: Message[]): Content[] =
             const parts: Part[] = [];
             
             // --- Versioning Logic ---
-            // Prioritize active version content if available, otherwise fallback to root props (legacy)
+            // Prioritize active version content if available, otherwise fallback to root props
             let textContent = msg.text;
             let attachments = msg.attachments;
 
-            if (msg.versions && msg.versions.length > 0) {
-                // Ensure activeVersionIndex is valid
-                const safeIndex = (typeof msg.activeVersionIndex === 'number' && msg.activeVersionIndex >= 0 && msg.activeVersionIndex < msg.versions.length)
-                    ? msg.activeVersionIndex
-                    : msg.versions.length - 1; // Default to last version
-
-                const activeVersion = msg.versions[safeIndex];
+            if (msg.versions && typeof msg.activeVersionIndex === 'number') {
+                const activeVersion = msg.versions[msg.activeVersionIndex];
                 if (activeVersion) {
                     textContent = activeVersion.text;
                     // If the version has specific attachments, use them. 
@@ -87,19 +82,7 @@ export const transformHistoryToGeminiFormat = (messages: Message[]): Content[] =
                 pushContent('user', parts);
             }
         } else if (msg.role === 'model') {
-            // --- Branching Logic for Responses ---
-            let activeResponse = null;
-            
-            if (msg.responses && msg.responses.length > 0) {
-                const safeIndex = (typeof msg.activeResponseIndex === 'number' && msg.activeResponseIndex >= 0 && msg.activeResponseIndex < msg.responses.length)
-                    ? msg.activeResponseIndex
-                    : msg.responses.length - 1;
-                activeResponse = msg.responses[safeIndex];
-            } else {
-                // Fallback for legacy messages without response array
-                activeResponse = { text: msg.text, toolCallEvents: [] };
-            }
-
+            const activeResponse = msg.responses?.[msg.activeResponseIndex];
             if (!activeResponse) return;
 
             // We send the FULL text (thought + answer) so the model maintains chain of thought
@@ -112,7 +95,7 @@ export const transformHistoryToGeminiFormat = (messages: Message[]): Content[] =
             }
 
             if (activeResponse.toolCallEvents) {
-                activeResponse.toolCallEvents.forEach((event: any) => {
+                activeResponse.toolCallEvents.forEach(event => {
                     if (event.result !== undefined) {
                         // TRUNCATION LOGIC:
                         // If this is NOT the last message, truncate large tool outputs.

@@ -48,6 +48,15 @@ await patchAndCopy('index.html', 'dist/index.html', (html) => html.replace('src=
 // Fix sw.js to have a valid cache name
 await patchAndCopy('sw.js', 'dist/sw.js', (js) => js.replace('{{VERSION}}', 'dev-' + Date.now()));
 
+// 3. Initial Tailwind Build (Blocking)
+// This ensures main.css exists before the browser requests it via SW
+console.log('Compiling initial Tailwind CSS...');
+try {
+    execSync('npx tailwindcss -i ./src/styles/main.css -o ./dist/styles/main.css');
+} catch (e) {
+    console.error('Tailwind compilation failed:', e.message);
+}
+
 console.log('Assets prepared.');
 
 // --- Watchers ---
@@ -65,6 +74,14 @@ fs.watch('index.html', () => {
 fs.watch('sw.js', () => {
     patchAndCopy('sw.js', 'dist/sw.js', (js) => js.replace('{{VERSION}}', 'dev-' + Date.now()));
 });
+
+// Watch Tailwind
+const tailwindProcess = spawn('npx', ['tailwindcss', '-i', './src/styles/main.css', '-o', './dist/styles/main.css', '--watch'], {
+    stdio: 'inherit',
+    shell: true
+});
+tailwindProcess.on('error', (err) => console.error('Tailwind watcher error:', err));
+
 
 // --- Servers ---
 

@@ -1,4 +1,3 @@
-
 import esbuild from 'esbuild';
 import cpx from 'cpx';
 import { rm, readFile, writeFile, mkdir } from 'fs/promises';
@@ -83,14 +82,24 @@ try {
   // Exclude sw.js and _headers from bulk copy as they are handled/generated below
   await copyFiles('{manifest.json,favicon.svg,_redirects}', 'dist');
 
-  // 5. Process and Copy Service Worker
+  // 5. Compile Tailwind CSS
+  console.log('Compiling Tailwind CSS...');
+  try {
+    execSync('npx tailwindcss -i ./src/styles/main.css -o ./dist/styles/main.css --minify', { stdio: 'inherit' });
+    console.log('Tailwind CSS compiled successfully.');
+  } catch (err) {
+    console.error('Tailwind CSS compilation failed:', err);
+    process.exit(1);
+  }
+
+  // 6. Process and Copy Service Worker
   console.log('Processing Service Worker...');
   let swContent = await readFile('sw.js', 'utf-8');
   swContent = swContent.replace('{{VERSION}}', version);
   await writeFile('dist/sw.js', swContent);
   console.log('Service Worker injected with version and copied.');
 
-  // 6. Generate _headers file for Cloudflare/Netlify
+  // 7. Generate _headers file for Cloudflare/Netlify
   console.log('Generating _headers file...');
   const headersContent = `/*
   X-Content-Type-Options: nosniff

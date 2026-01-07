@@ -77,13 +77,7 @@ export default defineConfig(({ mode }) => {
         host: '0.0.0.0',
       },
       plugins: [
-        react({
-          babel: {
-            plugins: [
-              ["babel-plugin-react-compiler", {}],
-            ],
-          },
-        }),
+        react(),
         staticAssetsPlugin(appVersion)
       ],
       define: {

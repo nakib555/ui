@@ -7,7 +7,6 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AnimatePresence, motion as motionTyped } from 'framer-motion';
 import JSZip from 'jszip';
 import type { MemoryFile } from '../../hooks/useMemory';
-import { Virtuoso } from 'react-virtuoso';
 
 const motion = motionTyped as any;
 
@@ -312,65 +311,64 @@ export const MemoryModal: React.FC<MemoryModalProps> = ({ isOpen, onClose, memor
                             </button>
                         </div>
 
-                        {/* Virtualized List */}
-                        <div className="flex-1 min-h-0 w-full bg-slate-50/50 dark:bg-black/10">
-                            {filteredFiles.length > 0 ? (
-                                <Virtuoso
-                                    style={{ height: '100%', width: '100%' }}
-                                    data={filteredFiles}
-                                    className="custom-scrollbar"
-                                    components={{ Footer: () => <div className="h-4" /> }}
-                                    itemContent={(index, file) => (
-                                        <div className="px-6 py-2">
-                                            <div 
-                                                onClick={() => setEditingFile(file)}
-                                                className="group cursor-pointer relative flex items-start gap-4 p-4 bg-white dark:bg-[#18181b] border border-slate-200 dark:border-white/5 rounded-2xl hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:shadow-md transition-all duration-200"
-                                            >
-                                                <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform duration-300">
-                                                    <Icons.FileText />
-                                                </div>
-                                                <div className="flex-1 min-w-0 py-0.5">
-                                                    <div className="flex justify-between items-start">
-                                                        <h4 className="text-base font-bold text-slate-800 dark:text-slate-100 truncate pr-20">{file.title}</h4>
-                                                    </div>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-1 font-mono opacity-80">{file.content.substring(0, 100) || "Empty file..."}</p>
-                                                    <div className="flex items-center gap-4 mt-3">
-                                                        <span className="text-[10px] font-medium text-slate-400 flex items-center gap-1.5 bg-slate-100 dark:bg-white/5 px-2 py-0.5 rounded-full">
-                                                            <Icons.Clock />
-                                                            {new Date(file.lastUpdated).toLocaleDateString()}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                
-                                                <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-2 group-hover:translate-x-0">
-                                                    <button 
-                                                        onClick={(e) => { e.stopPropagation(); setEditingFile(file); }}
-                                                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/20 rounded-lg transition-colors"
-                                                        title="Edit"
-                                                    >
-                                                        <Icons.Edit />
-                                                    </button>
-                                                    <button 
-                                                        onClick={(e) => { e.stopPropagation(); handleFileDelete(file.id); }}
-                                                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-lg transition-colors"
-                                                        title="Delete"
-                                                    >
-                                                        <Icons.Trash />
-                                                    </button>
-                                                </div>
+                        {/* Scrollable List */}
+                        <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
+                            <AnimatePresence initial={false}>
+                                {filteredFiles.map((file, index) => (
+                                    <motion.div 
+                                        key={file.id}
+                                        layout
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, scale: 0.95 }}
+                                        transition={{ duration: 0.2, delay: index * 0.03 }}
+                                        onClick={() => setEditingFile(file)}
+                                        className="group cursor-pointer relative flex items-start gap-4 p-4 bg-white dark:bg-[#18181b] border border-slate-200 dark:border-white/5 rounded-2xl hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:shadow-md transition-all duration-200"
+                                    >
+                                        <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform duration-300">
+                                             <Icons.FileText />
+                                        </div>
+                                        <div className="flex-1 min-w-0 py-0.5">
+                                            <div className="flex justify-between items-start">
+                                                <h4 className="text-base font-bold text-slate-800 dark:text-slate-100 truncate pr-20">{file.title}</h4>
+                                            </div>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-1 font-mono opacity-80">{file.content.substring(0, 100) || "Empty file..."}</p>
+                                            <div className="flex items-center gap-4 mt-3">
+                                                <span className="text-[10px] font-medium text-slate-400 flex items-center gap-1.5 bg-slate-100 dark:bg-white/5 px-2 py-0.5 rounded-full">
+                                                    <Icons.Clock />
+                                                    {new Date(file.lastUpdated).toLocaleDateString()}
+                                                </span>
                                             </div>
                                         </div>
-                                    )}
-                                />
-                            ) : (
-                                <div className="flex flex-col items-center justify-center h-full text-center opacity-60">
-                                    <div className="w-16 h-16 bg-slate-100 dark:bg-white/5 rounded-full flex items-center justify-center mb-4 text-slate-400">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                        
+                                        <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-2 group-hover:translate-x-0">
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); setEditingFile(file); }}
+                                                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/20 rounded-lg transition-colors"
+                                                title="Edit"
+                                            >
+                                                <Icons.Edit />
+                                            </button>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleFileDelete(file.id); }}
+                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-lg transition-colors"
+                                                title="Delete"
+                                            >
+                                                <Icons.Trash />
+                                            </button>
+                                        </div>
+                                    </motion.div>
+                                ))}
+                                {filteredFiles.length === 0 && (
+                                    <div className="flex flex-col items-center justify-center h-64 text-center opacity-60">
+                                        <div className="w-16 h-16 bg-slate-100 dark:bg-white/5 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                        </div>
+                                        <p className="text-slate-600 dark:text-slate-400 font-medium">No files found.</p>
+                                        <p className="text-slate-500 dark:text-slate-500 text-sm mt-1">Create a new memory file to get started.</p>
                                     </div>
-                                    <p className="text-slate-600 dark:text-slate-400 font-medium">No files found.</p>
-                                    <p className="text-slate-500 dark:text-slate-500 text-sm mt-1">Create a new memory file to get started.</p>
-                                </div>
-                            )}
+                                )}
+                            </AnimatePresence>
                         </div>
                 </div>
 

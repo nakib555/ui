@@ -87,11 +87,7 @@ You **MUST** follow this cycle for every multi-step request.
 1. **[Agent Name]**: [Action description] (Tools: tool_name)
 2. **[Agent Name]**: [Action description] (Dependency: Step 1)
 ...
-
-[USER_APPROVAL_REQUIRED]
 \`\`\`
-
-**MANDATORY:** You MUST output \`[USER_APPROVAL_REQUIRED]\` at the end of the Strategic Plan and **STOP GENERATING**. Do not proceed to Phase 2 until you receive user confirmation.
 
 ### PHASE 2: EXECUTE (The Loop)
 \`\`\`markdown

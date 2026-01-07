@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -14,34 +15,45 @@ type ImportChatModalProps = {
 };
 
 const jsonStructureExample = `{
-  "title": "Project Idea",
-  "createdAt": 1725184000000,
-  "model": "gemini-2.5-pro",
+  "id": "string (optional)",
+  "title": "string",
   "messages": [
     {
-      "id": "msg_1",
       "role": "user",
-      "text": "Help me design a database schema.",
+      "text": "string (current active text)",
       "activeVersionIndex": 0,
       "versions": [
         {
-          "text": "Help me design a database schema.",
-          "createdAt": 1725184000000
+          "text": "string (v1)",
+          "attachments": [],
+          "createdAt": 1720000000000
+        },
+        {
+          "text": "string (v2)",
+          "attachments": [],
+          "createdAt": 1720000000100,
+          "historyPayload": [] // Optional: Future messages for this branch
         }
       ]
     },
     {
-      "id": "msg_2",
       "role": "model",
       "activeResponseIndex": 0,
       "responses": [
         {
-          "text": "Sure! What kind of application are you building?",
-          "startTime": 1725184005000
+          "text": "string (response option 1)",
+          "toolCallEvents": [],
+          "error": null
+        },
+        {
+          "text": "string (response option 2)",
+          "toolCallEvents": []
         }
       ]
     }
-  ]
+  ],
+  "model": "string (e.g., 'gemini-2.5-pro')",
+  "createdAt": 1720000000000
 }`;
 
 // Simple function to add syntax highlighting spans to a JSON string

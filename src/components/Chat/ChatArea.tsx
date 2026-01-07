@@ -24,7 +24,7 @@ type ChatAreaProps = {
   onShowSources: (sources: Source[]) => void;
   approveExecution: (editedPlan: string) => void;
   denyExecution: () => void;
-  messageListRef: React.RefObject<MessageListHandle | null>;
+  messageListRef: React.RefObject<MessageListHandle>;
   onRegenerate: (messageId: string) => void;
   onSetActiveResponseIndex: (messageId: string, index: number) => void;
   isAgentMode: boolean;
@@ -35,7 +35,6 @@ type ChatAreaProps = {
   hasApiKey: boolean;
   onEditMessage?: (messageId: string, newText: string) => void;
   onNavigateBranch?: (messageId: string, direction: 'next' | 'prev') => void;
-  onInputFocusChange?: (focused: boolean) => void;
 };
 
 export const ChatArea = ({ 
@@ -44,7 +43,7 @@ export const ChatArea = ({
     onShowSources, approveExecution, denyExecution,
     messageListRef, onRegenerate, onSetActiveResponseIndex,
     isAgentMode, setIsAgentMode, backendStatus, backendError, onRetryConnection, hasApiKey,
-    onEditMessage, onNavigateBranch, onInputFocusChange
+    onEditMessage, onNavigateBranch
 }: ChatAreaProps) => {
   const messageFormRef = useRef<MessageFormHandle>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -177,7 +176,6 @@ export const ChatArea = ({
             setTtsVoice={setTtsVoice}
             currentChatId={currentChatId}
             activeModel={activeModel}
-            onFocusChange={onInputFocusChange}
           />
         </div>
       </div>

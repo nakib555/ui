@@ -10,16 +10,13 @@ import ReactDOM from 'react-dom/client';
 import { App } from './components/App/index';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { logCollector } from './utils/logCollector';
-import './styles/main.css';
 
 // Start logging immediately to capture startup events
 logCollector.start();
 
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
 root.render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </React.StrictMode>
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
 );

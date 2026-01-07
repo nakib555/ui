@@ -134,15 +134,6 @@ export const useChatHistory = () => {
   }, []);
 
   const loadChat = useCallback((chatId: string) => { 
-      // Check if we need to load this chat
-      const chat = chatHistoryRef.current.find(c => c.id === chatId);
-      
-      // Optimistically set isLoading to true if we don't have messages yet.
-      // This ensures the UI shows the Skeleton immediately instead of a blank/welcome screen.
-      if (chat && !chat.messages) {
-          setChatHistory(prev => prev.map(c => c.id === chatId ? { ...c, isLoading: true } : c));
-      }
-      
       setCurrentChatId(chatId); 
   }, []);
   

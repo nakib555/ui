@@ -766,7 +766,8 @@ export const useChat = (
         const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
         if (messageIndex === -1) return;
 
-        const targetMessage = currentChat.messages[messageIndex];
+        const updatedMessages = JSON.parse(JSON.stringify(currentChat.messages)) as Message[];
+        const targetMessage = updatedMessages[messageIndex];
 
         if (!targetMessage.responses || targetMessage.responses.length < 2) return;
 

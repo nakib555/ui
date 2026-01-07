@@ -11,13 +11,13 @@ import type { MessageFormHandle } from './MessageForm/index';
 import { AnimatePresence, motion as motionTyped } from 'framer-motion';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { useViewport } from '../../hooks/useViewport';
-import { ChatSkeleton } from '../UI/ChatSkeleton';
 
 const motion = motionTyped as any;
 
 // Safe lazy loads
 // We keep WelcomeScreen lazy as it's not time-critical for interaction feedback
 const WelcomeScreen = React.lazy(() => import('./WelcomeScreen/index').then(m => ({ default: m.WelcomeScreen })));
+const ChatSkeleton = React.lazy(() => import('../UI/ChatSkeleton').then(m => ({ default: m.ChatSkeleton })));
 
 export type MessageListHandle = {
   scrollToBottom: () => void;
@@ -141,7 +141,9 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(({
         isLoading ? (
             // Show Skeleton immediately when loading a chat
             <div className="h-full w-full bg-transparent">
-                <ChatSkeleton />
+                <Suspense fallback={null}>
+                    <ChatSkeleton />
+                </Suspense>
             </div>
         ) : (
             <div className="h-full overflow-y-auto custom-scrollbar">

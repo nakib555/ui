@@ -1,5 +1,5 @@
 {
-  "name": "Agentic AI ui",
+  "name": "Agentic AI Chat",
   "description": "A responsive chat application powered by the Gemini API, featuring an agentic AI persona.",
   "requestFramePermissions": [
     "microphone",

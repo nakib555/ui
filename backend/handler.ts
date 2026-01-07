@@ -26,17 +26,42 @@ import { vectorMemory } from './services/vectorMemory'; // Import Vector Memory
 // Store promises for frontend tool requests that the backend is waiting on
 const frontendToolRequests = new Map<string, (result: any) => void>();
 
-// Store abort controllers for ongoing agentic loops to allow cancellation
-const activeAgentLoops = new Map<string, AbortController>();
+// --- JOB MANAGEMENT SYSTEM ---
 
-// Using 'any' for res to bypass type definition mismatches in the environment
-const writeEvent = (res: any, type: string, payload: any) => {
-    if (!res.writableEnded && !res.closed && !res.destroyed) {
-        try {
-            res.write(JSON.stringify({ type, payload }) + '\n');
-        } catch (e) {
-            console.error(`[HANDLER] Error writing '${type}' event to stream:`, e);
+interface Job {
+    chatId: string;
+    messageId: string;
+    controller: AbortController;
+    clients: Set<any>; // Using any for Express Response to avoid type conflicts in some envs
+    eventBuffer: string[]; // Buffer of serialized event strings for reconnection
+    persistence: ChatPersistenceManager;
+    createdAt: number;
+}
+
+const activeJobs = new Map<string, Job>();
+
+const writeToClient = (job: Job, type: string, payload: any) => {
+    const data = JSON.stringify({ type, payload }) + '\n';
+    job.eventBuffer.push(data);
+    job.clients.forEach(client => {
+        if (!client.writableEnded && !client.closed && !client.destroyed) {
+            try {
+                client.write(data);
+            } catch (e) {
+                console.error(`[JOB] Failed to write to client for chat ${job.chatId}`, e);
+                job.clients.delete(client);
+            }
         }
+    });
+};
+
+const cleanupJob = (chatId: string) => {
+    const job = activeJobs.get(chatId);
+    if (job) {
+        job.clients.forEach(c => {
+            if (!c.writableEnded) c.end();
+        });
+        activeJobs.delete(chatId);
     }
 };
 
@@ -95,7 +120,6 @@ async function generateDirectoryStructure(dirPath: string): Promise<any> {
     }
 }
 
-// ... (Keep existing ChatPersistenceManager class) ...
 class ChatPersistenceManager {
     private chatId: string;
     private messageId: string;
@@ -186,6 +210,36 @@ class ChatPersistenceManager {
 
 export const apiHandler = async (req: any, res: any) => {
     const task = req.query.task as string;
+    
+    // --- RECONNECTION HANDLING (No API Key Check needed as it re-joins existing session) ---
+    if (task === 'connect') {
+        const { chatId } = req.body; 
+        const job = activeJobs.get(chatId);
+        
+        if (!job) {
+            // Chat might exist but stream finished/died
+            return res.status(404).json({ error: "No active stream found for this chat." });
+        }
+        
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Transfer-Encoding', 'chunked');
+        res.flushHeaders();
+        
+        job.clients.add(res);
+        console.log(`[HANDLER] Client reconnected to job ${chatId}`);
+        
+        // Replay buffer
+        for (const event of job.eventBuffer) {
+            res.write(event);
+        }
+        
+        req.on('close', () => {
+            job.clients.delete(res);
+        });
+        
+        return;
+    }
+
     const activeProvider = await getProvider();
     const mainApiKey = await getApiKey();
     const suggestionApiKey = await getSuggestionApiKey();
@@ -241,17 +295,13 @@ export const apiHandler = async (req: any, res: any) => {
                     savedChat = await historyControl.updateChat(chatId, { messages: historyMessages });
                     historyForAI = historyMessages.slice(0, -1);
                 } else if (task === 'regenerate') {
-                     // NEW LOGIC:
-                     // The frontend handles the branching/placeholder setup via updateChat before calling this.
-                     // We just need to identify the message to calculate the preceding context.
                      const targetIndex = historyMessages.findIndex((m: any) => m.id === messageId);
                      
                      if (targetIndex !== -1) {
                          // Context is everything BEFORE the target message
                          historyForAI = historyMessages.slice(0, targetIndex);
-                         // We do NOT modify the history array or save here, preserving the structure set by frontend.
                      } else {
-                         // Fallback: If message doesn't exist (e.g. race condition or direct API call), create it.
+                         // Fallback
                          const modelPlaceholder = {
                             id: messageId,
                             role: 'model' as const,
@@ -269,7 +319,41 @@ export const apiHandler = async (req: any, res: any) => {
 
                 if (!savedChat) throw new Error("Failed to initialize chat persistence");
 
+                // --- Cancel Existing Job if Present ---
+                if (activeJobs.has(chatId)) {
+                    console.log(`[HANDLER] Cancelling existing job for ${chatId} due to new request.`);
+                    const oldJob = activeJobs.get(chatId);
+                    oldJob?.controller.abort();
+                    activeJobs.delete(chatId);
+                }
+
+                // --- Setup New Job ---
                 const persistence = new ChatPersistenceManager(chatId, messageId);
+                const abortController = new AbortController();
+                const job: Job = {
+                    chatId,
+                    messageId,
+                    controller: abortController,
+                    clients: new Set([res]), // Add current request as first client
+                    eventBuffer: [],
+                    persistence,
+                    createdAt: Date.now()
+                };
+                activeJobs.set(chatId, job);
+
+                res.setHeader('Content-Type', 'application/json');
+                res.setHeader('Transfer-Encoding', 'chunked');
+                res.flushHeaders();
+
+                writeToClient(job, 'start', { requestId: chatId });
+
+                // Ping interval to keep connection alive
+                const pingInterval = setInterval(() => writeToClient(job, 'ping', {}), 10000);
+                
+                req.on('close', () => {
+                    // Just remove this client, don't abort the job yet (let it run for reconnection)
+                    job.clients.delete(res);
+                });
 
                 // --- RAG RETRIEVAL STEP ---
                 let ragContext = "";
@@ -286,21 +370,15 @@ export const apiHandler = async (req: any, res: any) => {
                 }
 
                 // --- SYSTEM PROMPT CONSTRUCTION ---
-                // We construct this logic BEFORE the provider check so OpenRouter also gets the full prompt context.
                 const coreInstruction = settings.isAgentMode ? agenticSystemInstruction : chatModeSystemInstruction;
                 const { systemPrompt, aboutUser, aboutResponse } = settings;
                 
-                // CRITICAL: Personalization Injection
-                // We ensure this is prepended forcefully
                 let personalizationSection = "";
                 if (aboutUser && aboutUser.trim()) personalizationSection += `\n## 👤 USER PROFILE & CONTEXT\n${aboutUser.trim()}\n`;
                 if (aboutResponse && aboutResponse.trim()) personalizationSection += `\n## 🎭 RESPONSE STYLE & PERSONA PREFERENCES\n${aboutResponse.trim()}\n`;
                 if (systemPrompt && systemPrompt.trim()) personalizationSection += `\n## 🔧 CUSTOM USER DIRECTIVES\n${systemPrompt.trim()}\n`;
 
-                // Inject RAG Context into System Instruction
-                if (ragContext) {
-                    personalizationSection += ragContext;
-                }
+                if (ragContext) personalizationSection += ragContext;
 
                 let finalSystemInstruction = coreInstruction;
                 if (personalizationSection) {
@@ -317,27 +395,11 @@ ${coreInstruction}
 `.trim();
                 }
 
-                res.setHeader('Content-Type', 'application/json');
-                res.setHeader('Transfer-Encoding', 'chunked');
-                res.flushHeaders();
-
-                const requestId = generateId();
-                const abortController = new AbortController();
-                activeAgentLoops.set(requestId, abortController);
-                writeEvent(res, 'start', { requestId });
-
-                const pingInterval = setInterval(() => writeEvent(res, 'ping', {}), 10000);
-                
-                req.on('close', () => {
-                    clearInterval(pingInterval);
-                });
-
                 if (activeProvider === 'openrouter') {
                     const openRouterMessages = historyForAI.map((msg: any) => ({
                         role: msg.role === 'model' ? 'assistant' : 'user',
                         content: msg.text || ''
                     }));
-                    // Inject the fully constructed system instruction
                     openRouterMessages.unshift({ role: 'system', content: finalSystemInstruction });
 
                     try {
@@ -347,17 +409,17 @@ ${coreInstruction}
                             openRouterMessages,
                             {
                                 onTextChunk: (text) => {
-                                    writeEvent(res, 'text-chunk', text);
+                                    writeToClient(job, 'text-chunk', text);
                                     persistence.addText(text);
                                 },
                                 onComplete: (fullText) => {
-                                    writeEvent(res, 'complete', { finalText: fullText });
+                                    writeToClient(job, 'complete', { finalText: fullText });
                                     persistence.complete((response) => {
                                         response.endTime = Date.now();
                                     });
                                 },
                                 onError: (error) => {
-                                    writeEvent(res, 'error', { message: error.message || 'OpenRouter Error' });
+                                    writeToClient(job, 'error', { message: error.message || 'OpenRouter Error' });
                                     persistence.complete((response) => {
                                         response.error = { message: error.message || 'OpenRouter Error' };
                                     });
@@ -366,12 +428,11 @@ ${coreInstruction}
                             { temperature: settings.temperature, maxTokens: settings.maxOutputTokens }
                         );
                     } catch (e: any) {
-                        writeEvent(res, 'error', { message: e.message });
+                        writeToClient(job, 'error', { message: e.message });
                         persistence.complete((response) => { response.error = { message: e.message }; });
                     } finally {
                         clearInterval(pingInterval);
-                        activeAgentLoops.delete(requestId);
-                        if (!res.writableEnded) res.end();
+                        cleanupJob(chatId);
                     }
                     return;
                 }
@@ -383,8 +444,8 @@ ${coreInstruction}
 
                 const requestFrontendExecution = (callId: string, toolName: string, toolArgs: any) => {
                     return new Promise<string | { error: string }>((resolve) => {
-                        if (res.writableEnded || res.closed || res.destroyed) {
-                            resolve({ error: "Client disconnected." });
+                        if (abortController.signal.aborted) {
+                            resolve({ error: "Job aborted." });
                             return;
                         }
                         const timeoutId = setTimeout(() => {
@@ -398,12 +459,12 @@ ${coreInstruction}
                             resolve(result);
                         });
                         sessionCallIds.add(callId);
-                        writeEvent(res, 'frontend-tool-request', { callId, toolName, toolArgs });
+                        writeToClient(job, 'frontend-tool-request', { callId, toolName, toolArgs });
                     });
                 };
                 
                 const onToolUpdate = (callId: string, data: any) => {
-                    writeEvent(res, 'tool-update', { id: callId, ...data });
+                    writeToClient(job, 'tool-update', { id: callId, ...data });
                 };
                 
                 const toolExecutor = createToolExecutor(ai, settings.imageModel, settings.videoModel, activeApiKey!, chatId, requestFrontendExecution, false, onToolUpdate);
@@ -414,25 +475,6 @@ ${coreInstruction}
                     tools: settings.isAgentMode ? [{ functionDeclarations: toolDeclarations }] : [{ googleSearch: {} }],
                 };
                 
-                // --- DEBUG LOGGING ---
-                console.log('\n\x1b[36m%s\x1b[0m', '╔═══════════════════════ FULL AI PROMPT CONTEXT ═══════════════════════╗');
-                console.log('\x1b[1m%s\x1b[0m', '▶ MODEL:', model);
-                console.log('\x1b[33m%s\x1b[0m', '\n▶ SYSTEM INSTRUCTION (Internal + Personalization + RAG):');
-                // console.log(finalSystemInstruction);
-                console.log('\x1b[33m%s\x1b[0m', '\n▶ CONVERSATION HISTORY (Gemini Format):');
-                
-                // Safe logger to truncate base64 data for cleaner console output
-                const safeHistoryLog = fullHistory.map(h => ({
-                    role: h.role,
-                    parts: (h.parts || []).map(p => {
-                        if (p.inlineData) return { inlineData: { mimeType: p.inlineData.mimeType, data: '[BASE64_DATA_TRUNCATED]' } };
-                        return p;
-                    })
-                }));
-                // console.log(JSON.stringify(safeHistoryLog, null, 2));
-                console.log('\x1b[36m%s\x1b[0m', '╚══════════════════════════════════════════════════════════════════════╝\n');
-                // --- END DEBUG LOGGING ---
-
                 try {
                     await runAgenticLoop({
                         ai,
@@ -441,17 +483,17 @@ ${coreInstruction}
                         toolExecutor,
                         callbacks: {
                             onTextChunk: (text) => {
-                                writeEvent(res, 'text-chunk', text);
+                                writeToClient(job, 'text-chunk', text);
                                 persistence.addText(text);
                             },
                             onNewToolCalls: (toolCallEvents) => {
-                                writeEvent(res, 'tool-call-start', toolCallEvents);
+                                writeToClient(job, 'tool-call-start', toolCallEvents);
                                 persistence.update((response) => {
                                     response.toolCallEvents = [...(response.toolCallEvents || []), ...toolCallEvents];
                                 });
                             },
                             onToolResult: (id, result) => {
-                                writeEvent(res, 'tool-call-end', { id, result });
+                                writeToClient(job, 'tool-call-end', { id, result });
                                 persistence.update((response) => {
                                     if (response.toolCallEvents) {
                                         const event = response.toolCallEvents.find((e: any) => e.id === id);
@@ -464,7 +506,7 @@ ${coreInstruction}
                             },
                             onPlanReady: (plan) => {
                                 return new Promise((resolve) => {
-                                    if (res.writableEnded || res.closed) {
+                                    if (abortController.signal.aborted) {
                                         resolve(false); 
                                         return;
                                     }
@@ -474,27 +516,26 @@ ${coreInstruction}
                                     });
                                     frontendToolRequests.set(callId, resolve);
                                     sessionCallIds.add(callId);
-                                    writeEvent(res, 'plan-ready', { plan, callId });
+                                    writeToClient(job, 'plan-ready', { plan, callId });
                                 });
                             },
                             onFrontendToolRequest: (callId, name, args) => { },
                             onComplete: (finalText, groundingMetadata) => {
-                                writeEvent(res, 'complete', { finalText, groundingMetadata });
+                                writeToClient(job, 'complete', { finalText, groundingMetadata });
                                 persistence.complete((response) => {
                                     response.endTime = Date.now();
                                     if (groundingMetadata) response.groundingMetadata = groundingMetadata;
                                 });
-                                // Add Final Answer to Vector Memory
                                 if (finalText.length > 50) {
                                     vectorMemory.addMemory(finalText, { chatId, role: 'model' }).catch(console.error);
                                 }
                             },
                             onCancel: () => {
-                                writeEvent(res, 'cancel', {});
+                                writeToClient(job, 'cancel', {});
                                 persistence.complete();
                             },
                             onError: (error) => {
-                                writeEvent(res, 'error', error);
+                                writeToClient(job, 'error', error);
                                 persistence.complete((response) => {
                                     response.error = error;
                                     response.endTime = Date.now();
@@ -503,15 +544,14 @@ ${coreInstruction}
                         },
                         settings: finalSettings,
                         signal: abortController.signal,
-                        threadId: requestId,
+                        threadId: chatId,
                     });
                 } catch (loopError) {
                     console.error(`[HANDLER] Loop crash:`, loopError);
                     persistence.complete((response) => { response.error = parseApiError(loopError); });
                 } finally {
                     clearInterval(pingInterval);
-                    activeAgentLoops.delete(requestId);
-                    if (!res.writableEnded) res.end();
+                    cleanupJob(chatId);
                 }
                 break;
             }
@@ -529,14 +569,21 @@ ${coreInstruction}
                 break;
             }
             case 'cancel': {
-                const { requestId } = req.body;
-                const controller = activeAgentLoops.get(requestId);
-                if (controller) {
-                    controller.abort();
-                    activeAgentLoops.delete(requestId);
+                const { requestId } = req.body; // In new system, this is usually chatId, but we support requestId for compat
+                
+                // Try to find job by ID (if it matches) OR iterating
+                let job = activeJobs.get(requestId);
+                if (!job) {
+                    // If requestId passed was not chatId, we might need a lookup map, but frontend sends chatId now usually?
+                    // Let's assume requestId is chatId for cancellation in new system.
+                }
+
+                if (job) {
+                    job.controller.abort();
+                    // Don't delete immediately, allow loop to exit gracefully and cleanup
                     res.status(200).send({ message: 'Cancellation request received.' });
                 } else {
-                    res.status(404).json({ error: `No active request found for requestId: ${requestId}` });
+                    res.status(404).json({ error: `No active job found for ID: ${requestId}` });
                 }
                 break;
             }

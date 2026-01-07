@@ -37,12 +37,12 @@ export const useChat = (
     const chatHistoryHook = useChatHistory();
     const { chatHistory, currentChatId, updateChatTitle, updateChatProperty } = chatHistoryHook;
     const abortControllerRef = useRef<AbortController | null>(null);
-    const requestIdRef = useRef<string | null>(null); // For explicit cancellation
+    const requestIdRef = useRef<string | null>(null); 
     const testResolverRef = useRef<((value: Message | PromiseLike<Message>) => void) | null>(null);
+    const hasAttemptedReconnection = useRef(false);
     
     // Track title generation attempts to prevent loops
     const titleGenerationAttemptedRef = useRef<Set<string>>(new Set());
-
 
     // Refs to hold the latest state for callbacks
     const chatHistoryRef = useRef(chatHistory);
@@ -81,14 +81,13 @@ export const useChat = (
         // Abort the frontend fetch immediately for responsiveness
         abortControllerRef.current?.abort();
         
-        // Send the explicit cancel request to the backend fire-and-forget style
-        if (requestIdRef.current) {
+        // Send explicit cancel request using chatId as ID
+        if (currentChatIdRef.current) {
             fetchFromApi('/api/handler?task=cancel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ requestId: requestIdRef.current }),
+                body: JSON.stringify({ requestId: currentChatIdRef.current }),
             }).catch(error => console.error('[FRONTEND] Failed to send cancel request:', error));
-            requestIdRef.current = null;
         }
         
         const chatId = currentChatIdRef.current;
@@ -98,8 +97,6 @@ export const useChat = (
             if (currentChat?.messages?.length) {
                 const lastMessage = currentChat.messages[currentChat.messages.length - 1];
                 
-                // 1. Mark as not thinking
-                // 2. Mark with specific STOPPED code so UI renders "Stopped" instead of crashing or showing generic error
                 chatHistoryHook.updateActiveResponseOnMessage(chatId, lastMessage.id, () => ({
                     error: { 
                         code: 'STOPPED_BY_USER', 
@@ -127,7 +124,6 @@ export const useChat = (
         const chatId = currentChatIdRef.current;
         if (chatId) {
             const currentChat = chatHistoryRef.current.find(c => c.id === chatId);
-            // Safe access check for messages array
             if (currentChat?.messages?.length) {
                 const lastMessage = currentChat.messages[currentChat.messages.length - 1];
                 const activeResponse = lastMessage.responses?.[lastMessage.activeResponseIndex];
@@ -143,7 +139,6 @@ export const useChat = (
         const chatId = currentChatIdRef.current;
         if (chatId) {
             const currentChat = chatHistoryRef.current.find(c => c.id === chatId);
-            // Safe access check for messages array
             if (currentChat?.messages?.length) {
                 const lastMessage = currentChat.messages[currentChat.messages.length - 1];
                 const activeResponse = lastMessage.responses?.[lastMessage.activeResponseIndex];
@@ -155,11 +150,162 @@ export const useChat = (
         }
     }, [updateMessage, handleFrontendToolExecution]);
 
+    // --- RECONNECTION LOGIC ---
+    const connectToActiveStream = useCallback(async (chatId: string, messageId: string) => {
+        if (abortControllerRef.current) return; // Already connected or generating
+
+        console.log(`[FRONTEND] Attempting to reconnect to stream for chat ${chatId}...`);
+        chatHistoryHook.setChatLoadingState(chatId, true);
+        abortControllerRef.current = new AbortController();
+
+        try {
+            const response = await fetchFromApi('/api/handler?task=connect', {
+                method: 'POST', // Connect task is POST to send body
+                headers: { 'Content-Type': 'application/json' },
+                signal: abortControllerRef.current.signal,
+                body: JSON.stringify({ chatId })
+            });
+
+            if (!response.ok) {
+                if (response.status === 404) {
+                    console.warn("[FRONTEND] Stream not found (404). Assuming completion.");
+                    // Ensure local state is consistent
+                    chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
+                    chatHistoryHook.completeChatLoading(chatId);
+                } else {
+                    throw new Error(`Reconnection failed: ${response.status}`);
+                }
+                return;
+            }
+
+            if (!response.body) throw new Error("No response body");
+
+            await processBackendStream(
+                response,
+                {
+                    onTextChunk: (delta) => {
+                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (current) => {
+                            const newText = (current.text || '') + delta;
+                            const parsedWorkflow = parseAgenticWorkflow(newText, current.toolCallEvents || [], false);
+                            return { text: newText, workflow: parsedWorkflow };
+                        });
+                    },
+                    onWorkflowUpdate: () => {},
+                    onToolCallStart: (toolCallEvents) => {
+                        // Merge to avoid duplication on replay? Backend buffer sends everything from start?
+                        // Assuming backend sends all events including past ones if we reconnect to start, 
+                        // or just new ones if we use Last-Event-ID?
+                        // Current backend implementation replays full buffer.
+                        // We need to merge intelligently or just replace?
+                        // For simplicity in this implementation, we append/merge by ID.
+                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                            const existingIds = new Set(r.toolCallEvents?.map(e => e.id));
+                            const newEvents = toolCallEvents.filter(e => !existingIds.has(e.id)).map(e => ({...e, startTime: e.startTime || Date.now()}));
+                            const updatedEvents = [...(r.toolCallEvents || []), ...newEvents];
+                            const parsedWorkflow = parseAgenticWorkflow(r.text || '', updatedEvents, false);
+                            return { toolCallEvents: updatedEvents, workflow: parsedWorkflow };
+                        });
+                    },
+                    onToolUpdate: (payload) => {
+                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                            const updatedEvents = r.toolCallEvents?.map(tc => {
+                                if (tc.id === payload.id) {
+                                    const session = (tc.browserSession || { url: payload.url || '', logs: [], status: 'running' }) as BrowserSession;
+                                    if (payload.log) session.logs = [...session.logs, payload.log];
+                                    if (payload.screenshot) session.screenshot = payload.screenshot;
+                                    if (payload.title) session.title = payload.title;
+                                    if (payload.url) session.url = payload.url;
+                                    if (payload.status) session.status = payload.status;
+                                    return { ...tc, browserSession: { ...session } };
+                                }
+                                return tc;
+                            });
+                            return { toolCallEvents: updatedEvents };
+                        });
+                    },
+                    onToolCallEnd: (payload) => {
+                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                            const updatedEvents = r.toolCallEvents?.map(tc => tc.id === payload.id ? { ...tc, result: payload.result, endTime: Date.now() } : tc);
+                            const parsedWorkflow = parseAgenticWorkflow(r.text || '', updatedEvents || [], false);
+                            return { toolCallEvents: updatedEvents, workflow: parsedWorkflow };
+                        });
+                    },
+                    onPlanReady: (plan) => {
+                        const payload = plan as any; 
+                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, () => ({ plan: payload }));
+                        chatHistoryHook.updateMessage(chatId, messageId, { executionState: 'pending_approval' });
+                    },
+                    onFrontendToolRequest: (callId, toolName, toolArgs) => {
+                        handleFrontendToolExecution(callId, toolName, toolArgs);
+                    },
+                    onComplete: (payload) => {
+                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (r) => {
+                            const finalWorkflow = parseAgenticWorkflow(payload.finalText, r.toolCallEvents || [], true);
+                            return { 
+                                text: payload.finalText, 
+                                endTime: Date.now(), 
+                                groundingMetadata: payload.groundingMetadata,
+                                workflow: finalWorkflow 
+                            };
+                        });
+                        chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
+                        chatHistoryHook.completeChatLoading(chatId);
+                    },
+                    onError: (error) => {
+                        chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, () => ({ error: parseApiError(error), endTime: Date.now() }));
+                        chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
+                        chatHistoryHook.completeChatLoading(chatId);
+                    },
+                    onCancel: () => {
+                        chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
+                        chatHistoryHook.completeChatLoading(chatId);
+                    }
+                },
+                abortControllerRef.current.signal
+            );
+
+        } catch (error) {
+            console.error("[FRONTEND] Reconnection error:", error);
+            // On hard fail, assume stopped
+            chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
+            chatHistoryHook.completeChatLoading(chatId);
+        } finally {
+            abortControllerRef.current = null;
+        }
+    }, [chatHistoryHook, handleFrontendToolExecution]);
+
+    // Check for potential reconnection needs on mount/chat switch
+    useEffect(() => {
+        // Only run once per chat load
+        if (hasAttemptedReconnection.current || !currentChatId) return;
+        
+        const chat = chatHistoryRef.current.find(c => c.id === currentChatId);
+        // If chat exists, has messages, and last message is thinking...
+        if (chat && chat.messages && chat.messages.length > 0) {
+            const lastMsg = chat.messages[chat.messages.length - 1];
+            // ...and we are NOT currently locally loading (stream active)
+            if (lastMsg.role === 'model' && lastMsg.isThinking && !abortControllerRef.current) {
+                // ...and there's no error on it
+                if (!lastMsg.responses?.[lastMsg.activeResponseIndex]?.error) {
+                    hasAttemptedReconnection.current = true;
+                    // Trigger reconnection
+                    connectToActiveStream(currentChatId, lastMsg.id);
+                }
+            }
+        }
+    }, [currentChatId, connectToActiveStream]); // chatHistory dependency removed to prevent loops, relying on ref/mount logic
+
+    // Reset attempt flag on chat change
+    useEffect(() => {
+        hasAttemptedReconnection.current = false;
+    }, [currentChatId]);
+
+
     const startBackendChat = async (
         task: 'chat' | 'regenerate',
         chatId: string,
-        messageId: string, // The ID of the model message to update
-        newMessage: Message | null, // The new user message (null for regenerate or explicit null if user message already in history)
+        messageId: string, 
+        newMessage: Message | null,
         chatConfig: Pick<ChatSession, 'model' | 'temperature' | 'maxOutputTokens' | 'imageModel' | 'videoModel'>,
         runtimeSettings: { isAgentMode: boolean } & ChatSettings
     ) => {
@@ -170,7 +316,7 @@ export const useChat = (
                 chatId: chatId,
                 messageId: messageId,
                 model: chatConfig.model,
-                newMessage: newMessage, // Send message object or null
+                newMessage: newMessage,
                 settings: {
                     isAgentMode: runtimeSettings.isAgentMode,
                     systemPrompt: runtimeSettings.systemPrompt,
@@ -183,9 +329,6 @@ export const useChat = (
                     memoryContent,
                 }
             };
-
-            // Log payload for debugging
-            console.log('[Frontend] 📤 Outgoing Chat Request:', requestPayload);
 
             const response = await fetchFromApi(`/api/handler?task=${task}`, {
                 method: 'POST',
@@ -216,7 +359,6 @@ export const useChat = (
             
             if (!response.body) throw new Error("Response body is missing");
             
-            // Delegate to the stream processor service
             await processBackendStream(
                 response,
                 {
@@ -224,17 +366,13 @@ export const useChat = (
                         requestIdRef.current = requestId;
                     },
                     onTextChunk: (delta) => {
-                        // Append delta to current text
                         chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, (current) => {
                             const newText = (current.text || '') + delta;
-                            // Client-side workflow parsing
                             const parsedWorkflow = parseAgenticWorkflow(newText, current.toolCallEvents || [], false);
                             return { text: newText, workflow: parsedWorkflow };
                         });
                     },
-                    onWorkflowUpdate: () => {
-                        // Deprecated: Workflow is now computed client-side in onTextChunk/onTool*
-                    },
+                    onWorkflowUpdate: () => { },
                     onToolCallStart: (toolCallEvents) => {
                         const newEvents = toolCallEvents.map((toolEvent: any) => ({
                             id: toolEvent.id,
@@ -319,10 +457,7 @@ export const useChat = (
                 
                 const finalChatState = chatHistoryRef.current.find(c => c.id === chatId);
                 
-                // --- POST-STREAMING OPERATIONS ---
-                
                 if (finalChatState && apiKey && finalChatState.messages) {
-                    // 1. Generate Title (Only for new chats, only once, only after stream complete)
                     if (finalChatState.title === "New Chat" && finalChatState.messages.length >= 2 && !titleGenerationAttemptedRef.current.has(chatId)) {
                         titleGenerationAttemptedRef.current.add(chatId);
                         
@@ -334,12 +469,10 @@ export const useChat = (
                             .catch(err => console.error("Failed to generate chat title:", err));
                     }
 
-                    // 2. Generate Suggestions
                     const suggestions = await generateFollowUpSuggestions(finalChatState.messages);
                      if (suggestions.length > 0) {
                         chatHistoryHook.updateActiveResponseOnMessage(chatId, messageId, () => ({ suggestedActions: suggestions }));
                         
-                        // FIX: Explicitly persist suggestions to backend
                         const currentChatSnapshot = chatHistoryRef.current.find(c => c.id === chatId);
                         if (currentChatSnapshot && currentChatSnapshot.messages) {
                             const updatedMessages = currentChatSnapshot.messages.map(m => {
@@ -360,9 +493,6 @@ export const useChat = (
                     }
                 }
 
-                // Force sync state (ensure isThinking is false even if suggestions didn't run)
-                // We do this check to avoid double-saving if the suggestion block already saved above.
-                // But updateChatProperty is cheap enough to call again for safety.
                 setTimeout(() => {
                     const chatToPersist = chatHistoryRef.current.find(c => c.id === chatId);
                     if (chatToPersist && chatToPersist.messages) {
@@ -371,10 +501,9 @@ export const useChat = (
                         );
                         updateChatProperty(chatId, { messages: cleanMessages });
                     }
-                }, 200); // Increased slightly to 200ms to allow suggestion fetch to potentially finish
+                }, 200);
 
             } else {
-                // Ensure state is cleaned up even if aborted manually (though handleCancel usually handles it)
                 chatHistoryHook.updateMessage(chatId, messageId, { isThinking: false });
                 chatHistoryHook.completeChatLoading(chatId);
                 abortControllerRef.current = null;
@@ -384,14 +513,12 @@ export const useChat = (
     };
     
     const sendMessage = async (userMessage: string, files?: File[], options: { isHidden?: boolean; isThinkingModeEnabled?: boolean } = {}) => {
-        console.log('[Frontend] sendMessage called:', { userMessage, options });
         if (isLoading) {
             return;
         }
         
-        requestIdRef.current = null; // Reset before new message
+        requestIdRef.current = null; 
     
-        // Use Refs for latest state to avoid closure staleness issues
         const currentHistory = chatHistoryRef.current;
         const activeChatIdFromRef = currentChatIdRef.current;
         
@@ -410,11 +537,8 @@ export const useChat = (
                 videoModel: settings.videoModel,
             };
 
-            // Start creation optimistically (does NOT await network for UI update)
             chatCreationPromise = chatHistoryHook.startNewChat(initialModel, settingsToUse, optimisticId);
             
-            // We manually construct the chat object for the `startBackendChat` call below
-            // so we don't have to wait for state update to propagate to `currentChat` variable
             currentChat = {
                 id: optimisticId,
                 title: "New Chat",
@@ -436,17 +560,11 @@ export const useChat = (
     
         const chatForSettings = currentChat || { model: initialModel, ...settings };
 
-        // Ensure backend creation finishes before streaming starts
-        // We wait here to prevent the handler from 404ing on the chat ID
         if (chatCreationPromise) {
             const created = await chatCreationPromise;
-            if (!created) {
-                // Creation failed (rollback handled in startNewChat), so we stop here
-                return;
-            }
+            if (!created) return;
         }
 
-        // Use 'chat' task for new messages
         await startBackendChat(
             'chat',
             activeChatId, 
@@ -457,7 +575,6 @@ export const useChat = (
         );
     };
 
-    // --- Branching Logic for User Messages ---
     const editMessage = useCallback(async (messageId: string, newText: string) => {
         if (isLoading) cancelGeneration();
         const chatId = currentChatIdRef.current;
@@ -469,17 +586,12 @@ export const useChat = (
         const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
         if (messageIndex === -1) return;
 
-        // 1. Deep clone the messages list to avoid mutation issues
         const updatedMessages = JSON.parse(JSON.stringify(currentChat.messages)) as Message[];
         const targetMessage = updatedMessages[messageIndex];
-
-        // 2. Snapshot the "future" (all messages after this one) to preserve the old branch
-        // The future belongs to the current active version BEFORE we switch
         const futureMessages = updatedMessages.slice(messageIndex + 1);
         
         const currentVersionIndex = targetMessage.activeVersionIndex ?? 0;
         
-        // Initialize versions array if needed
         if (!targetMessage.versions || targetMessage.versions.length === 0) {
             targetMessage.versions = [{
                 text: targetMessage.text,
@@ -488,33 +600,25 @@ export const useChat = (
                 historyPayload: futureMessages
             }];
         } else {
-            // Update the current version with the current future before creating a new one
             targetMessage.versions[currentVersionIndex].historyPayload = futureMessages;
         }
 
-        // 3. Create New Version
         const newVersionIndex = targetMessage.versions.length;
         targetMessage.versions.push({
             text: newText,
-            attachments: targetMessage.attachments, // Carry over attachments
+            attachments: targetMessage.attachments, 
             createdAt: Date.now(),
-            historyPayload: [] // New branch starts with empty future
+            historyPayload: [] 
         });
 
-        // 4. Update Active Pointer & Text
         targetMessage.activeVersionIndex = newVersionIndex;
         targetMessage.text = newText;
 
-        // 5. Construct new message list: [..., PreviousMsgs, UpdatedUserMsg]
-        // We truncate everything after this message because we are starting a new generation
         const truncatedList = [...updatedMessages.slice(0, messageIndex), targetMessage];
 
-        // 6. Sync to Backend & Update Local State ATOMICALLY
         try {
-            // Update local and backend in one go with the fully constructed list
             await chatHistoryHook.updateChatProperty(chatId, { messages: truncatedList });
             
-            // 7. Add model placeholder
             const modelPlaceholder: Message = { 
                 id: generateId(), 
                 role: 'model', 
@@ -527,12 +631,11 @@ export const useChat = (
             chatHistoryHook.addMessagesToChat(chatId, [modelPlaceholder]);
             chatHistoryHook.setChatLoadingState(chatId, true);
 
-            // 8. Start Stream
             await startBackendChat(
-                'regenerate', // Force regenerate to ensure context is correctly read from the updated history in DB
+                'regenerate', 
                 chatId,
                 modelPlaceholder.id,
-                null, // Passing null since user message is already in history (updated above)
+                null, 
                 currentChat, 
                 { ...settings, isAgentMode }
             );
@@ -554,7 +657,6 @@ export const useChat = (
         const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
         if (messageIndex === -1) return;
 
-        // 1. Deep clone for safety
         const updatedMessages = JSON.parse(JSON.stringify(currentChat.messages)) as Message[];
         const targetMessage = updatedMessages[messageIndex];
 
@@ -568,24 +670,18 @@ export const useChat = (
         
         if (newIndex === currentIndex) return;
 
-        // --- SWITCH LOGIC ---
-        // 1. Save current future to the *current* version
         const currentFuture = updatedMessages.slice(messageIndex + 1);
         targetMessage.versions[currentIndex].historyPayload = currentFuture;
 
-        // 2. Restore future from the *target* version
         const targetVersion = targetMessage.versions[newIndex];
         const restoredFuture = targetVersion.historyPayload || [];
 
-        // 3. Update Message Content to match target version
         targetMessage.text = targetVersion.text;
         targetMessage.attachments = targetVersion.attachments;
         targetMessage.activeVersionIndex = newIndex;
 
-        // 4. Reconstruct Timeline
         const newMessagesList = [...updatedMessages.slice(0, messageIndex), targetMessage, ...restoredFuture];
 
-        // 5. Sync & Update
         try {
             await chatHistoryHook.updateChatProperty(chatId, { messages: newMessagesList });
         } catch (e) {
@@ -595,15 +691,13 @@ export const useChat = (
 
     }, [isLoading, chatHistoryHook, onShowToast]);
 
-    // --- Branching Logic for AI Responses (Regeneration & Navigation) ---
-
     const regenerateResponse = useCallback(async (aiMessageId: string) => {
         if (isLoading) cancelGeneration();
         if (!currentChatId) return;
 
-        requestIdRef.current = null; // Reset before new message
+        requestIdRef.current = null; 
 
-        const currentChat = chatHistoryRef.current.find(c => c.id === currentChatId); // Use ref for latest state
+        const currentChat = chatHistoryRef.current.find(c => c.id === currentChatId); 
         if (!currentChat || !currentChat.messages) return;
 
         const messageIndex = currentChat.messages.findIndex(m => m.id === aiMessageId);
@@ -612,39 +706,32 @@ export const useChat = (
             return;
         }
         
-        // 1. Deep clone messages to prevent mutation issues during async state updates
         const updatedMessages = JSON.parse(JSON.stringify(currentChat.messages)) as Message[];
         const targetMessage = updatedMessages[messageIndex];
         const currentResponseIndex = targetMessage.activeResponseIndex;
 
-        // 2. Snapshot Future: Save what came AFTER this message into the current response's payload
         const futureMessages = updatedMessages.slice(messageIndex + 1);
         if (targetMessage.responses && targetMessage.responses[currentResponseIndex]) {
             targetMessage.responses[currentResponseIndex].historyPayload = futureMessages;
         }
 
-        // 3. Add new response entry
         const newResponse: ModelResponse = { text: '', toolCallEvents: [], startTime: Date.now() };
         if (!targetMessage.responses) targetMessage.responses = [];
         targetMessage.responses.push(newResponse);
         targetMessage.activeResponseIndex = targetMessage.responses.length - 1;
         targetMessage.isThinking = true;
 
-        // 4. Truncate Future in the list (start fresh branch from this AI message)
         const truncatedList = [...updatedMessages.slice(0, messageIndex), targetMessage];
 
-        // 5. Atomic Update to Backend
         await chatHistoryHook.updateChatProperty(currentChatId, { messages: truncatedList });
         
-        // 6. Set Loading State locally
         chatHistoryHook.setChatLoadingState(currentChatId, true);
 
-        // 7. Use 'regenerate' task
         await startBackendChat(
             'regenerate',
             currentChatId, 
             aiMessageId, 
-            null, // No new user message
+            null, 
             currentChat, 
             { ...settings, isAgentMode: isAgentMode }
         );
@@ -662,7 +749,6 @@ export const useChat = (
         const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
         if (messageIndex === -1) return;
 
-        // 1. Deep clone
         const updatedMessages = JSON.parse(JSON.stringify(currentChat.messages)) as Message[];
         const targetMessage = updatedMessages[messageIndex];
 
@@ -672,22 +758,16 @@ export const useChat = (
         if (index < 0 || index >= targetMessage.responses.length) return;
         if (index === currentIndex) return;
 
-        // --- RESPONSE SWITCH LOGIC ---
-        // 2. Save current future to the *current* response
         const currentFuture = updatedMessages.slice(messageIndex + 1);
         targetMessage.responses[currentIndex].historyPayload = currentFuture;
 
-        // 3. Restore future from the *target* response
         const targetResponse = targetMessage.responses[index];
         const restoredFuture = targetResponse.historyPayload || [];
 
-        // 4. Update Active Index
         targetMessage.activeResponseIndex = index;
 
-        // 5. Reconstruct Timeline
         const newMessagesList = [...updatedMessages.slice(0, messageIndex), targetMessage, ...restoredFuture];
 
-        // 6. Sync & Update
         try {
             await chatHistoryHook.updateChatProperty(chatId, { messages: newMessagesList });
         } catch (e) {
